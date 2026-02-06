@@ -1,7 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { getFirestore, collection, addDoc, getDocs, doc, getDoc, setDoc, updateDoc, increment, orderBy, query, serverTimestamp, where } from 'firebase/firestore';
-import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { getStorage, ref, uploadBytesResumable, getDownloadURL, uploadString } from 'firebase/storage';
 import { Booklet, AppSettings } from '../types';
 
 // Safe environment variable access
@@ -13,18 +13,19 @@ const getEnv = (key: string, fallback: string) => {
 };
 
 // --- CONFIGURATION ---
-// UPDATED: Connected to 'esselle-publisher-b3bbf'
+// REPLACE THESE with your actual Firebase project settings for live production
 const firebaseConfig = {
-  apiKey: "AIzaSyD_3FRdlXO9dQEGNXXIRIllqKoOO-2tT8Q",
-  authDomain: "esselle-publisher-b3bbf.firebaseapp.com",
-  projectId: "esselle-publisher-b3bbf",
-  storageBucket: "esselle-publisher-b3bbf.firebasestorage.app",
-  messagingSenderId: "958825934813",
-  appId: "1:958825934813:web:81d9fe905c96284ab91034"
+  apiKey: getEnv('REACT_APP_FIREBASE_API_KEY', "demo-key"),
+  authDomain: "lumiere-folio.firebaseapp.com",
+  projectId: "lumiere-folio",
+  storageBucket: "lumiere-folio.appspot.com",
+  messagingSenderId: "123456789",
+  appId: "1:123456789:web:abcdef"
 };
 
 // --- MOCK DATA FOR DEVELOPMENT ---
 const STABLE_PDF = 'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi-09.pdf';
+const DEFAULT_COVER = 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=800';
 
 const MOCK_BOOKLETS: Booklet[] = [
   {
@@ -32,7 +33,7 @@ const MOCK_BOOKLETS: Booklet[] = [
     title: 'Esselle Spring Collection 2025',
     description: 'A curated lookbook of upcoming seasonal trends and retail floor sets.',
     url: STABLE_PDF,
-    coverUrl: 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=800',
+    coverUrl: DEFAULT_COVER,
     createdAt: Date.now() - 86400000 * 2,
     ownerId: 'admin-user',
     stats: { views: 1240, uniqueReaders: 850, avgTimeSeconds: 185, shares: 45 }
@@ -151,9 +152,6 @@ export const fetchBooklets = async (ownerId?: string): Promise<Booklet[]> => {
             
         const snapshot = await getDocs(q);
         const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booklet));
-        
-        // CRITICAL FIX: If in production mode, we DO NOT fall back to demo data.
-        // We only show what is actually in the database.
         return data;
     } catch (e) {
         console.error("Fetch error:", e);
@@ -181,10 +179,12 @@ export const getBookletById = async (id: string): Promise<Booklet | null> => {
 export const uploadPDF = async (
     file: File, 
     metadata: { title: string; description: string, ownerId: string },
-    onProgress: (progress: number) => void
+    onProgress: (progress: number) => void,
+    coverDataUrl?: string | null
   ): Promise<Booklet> => {
     const fileId = `up_${Date.now()}`;
     
+    // DEMO MODE UPLOAD
     if (isDemoMode || !storage) {
         return new Promise((resolve) => {
             let p = 0;
@@ -193,13 +193,21 @@ export const uploadPDF = async (
                 onProgress(p);
                 if (p >= 100) {
                     clearInterval(interval);
+                    
+                    // In demo mode, we just save the data URL directly if it's not too huge
+                    // Otherwise fallback to default
+                    let finalCoverUrl = DEFAULT_COVER;
+                    if (coverDataUrl && coverDataUrl.length < 2000000) { // Limit local storage size
+                        finalCoverUrl = coverDataUrl;
+                    }
+
                     const newBooklet = {
                         id: fileId,
                         title: metadata.title,
                         description: metadata.description,
-                        url: STABLE_PDF,
+                        url: STABLE_PDF, // In demo we don't actually upload the PDF file
                         createdAt: Date.now(),
-                        coverUrl: 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=800',
+                        coverUrl: finalCoverUrl,
                         ownerId: metadata.ownerId,
                         stats: { views: 0, uniqueReaders: 0, avgTimeSeconds: 0, shares: 0 }
                     };
@@ -213,6 +221,7 @@ export const uploadPDF = async (
         });
     }
 
+    // PRODUCTION UPLOAD
     const storageRef = ref(storage, `booklets/${fileId}`);
     const uploadTask = uploadBytesResumable(storageRef, file);
 
@@ -222,14 +231,35 @@ export const uploadPDF = async (
             (err) => reject(err),
             async () => {
                 const url = await getDownloadURL(uploadTask.snapshot.ref);
+                
+                let finalCoverUrl = DEFAULT_COVER;
+
+                // Upload Generated Cover if present
+                if (coverDataUrl) {
+                    try {
+                        const coverRef = ref(storage, `covers/${fileId}.jpg`);
+                        await uploadString(coverRef, coverDataUrl, 'data_url');
+                        finalCoverUrl = await getDownloadURL(coverRef);
+                    } catch (e) {
+                        console.error("Failed to upload cover image, using default", e);
+                    }
+                }
+
                 const docRef = await addDoc(collection(db, "booklets"), {
                     ...metadata,
                     url,
                     createdAt: serverTimestamp(),
-                    coverUrl: 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=800',
+                    coverUrl: finalCoverUrl,
                     stats: { views: 0, uniqueReaders: 0, avgTimeSeconds: 0, shares: 0 }
                 });
-                resolve({ id: docRef.id, ...metadata, url, createdAt: Date.now() });
+                
+                resolve({ 
+                    id: docRef.id, 
+                    ...metadata, 
+                    url, 
+                    createdAt: Date.now(),
+                    coverUrl: finalCoverUrl 
+                });
             }
         );
     });
