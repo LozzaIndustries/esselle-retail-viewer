@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lumière Folio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Nunito:wght@300;400;600&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              warm: '#bfb8af',     // Pantone Warm Gray 3c
+              cool: '#53565a',     // Pantone Cool Gray 11c
+              dark: '#332f21',     // Pantone Black 2c
+              primary: '#bfb8af',
+            },
+            fontFamily: {
+              serif: ['"Libre Baskerville"', 'serif'], // Fallback for Caslon Pro
+              sans: ['"Nunito"', 'sans-serif'],       // Fallback for Avenir
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      /* Custom Scrollbar for premium feel */
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #f1f1f1; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #bfb8af; 
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #53565a; 
+      }
+      
+      /* React PDF / PageFlip resets */
+      .react-pdf__Page__canvas {
+        margin: 0 auto;
+        width: 100% !important;
+        height: auto !important;
+      }
+      
+      /* Hide text layer and annotation layer to prevent visual glitches if CSS fails to load */
+      .react-pdf__Page__textContent,
+      .react-pdf__Page__annotations {
+        display: none !important;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react/": "https://esm.sh/react@18.2.0/",
+    "react-dom": "https://esm.sh/react-dom@18.2.0?deps=react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client?deps=react@18.2.0",
+    "lucide-react": "https://esm.sh/lucide-react@0.292.0?deps=react@18.2.0",
+    "react-router-dom": "https://esm.sh/react-router-dom@6.20.0?deps=react@18.2.0,react-dom@18.2.0",
+    "framer-motion": "https://esm.sh/framer-motion@10.16.5?deps=react@18.2.0,react-dom@18.2.0",
+    "react-pdf": "https://esm.sh/react-pdf@7.5.1?deps=react@18.2.0,react-dom@18.2.0",
+    "react-pdf/": "https://esm.sh/react-pdf@7.5.1/?deps=react@18.2.0,react-dom@18.2.0",
+    "firebase/app": "https://esm.sh/firebase@10.7.1/app",
+    "firebase/auth": "https://esm.sh/firebase@10.7.1/auth",
+    "firebase/firestore": "https://esm.sh/firebase@10.7.1/firestore",
+    "firebase/storage": "https://esm.sh/firebase@10.7.1/storage",
+    "qrcode.react": "https://esm.sh/qrcode.react@3.1.0?deps=react@18.2.0",
+    "react-zoom-pan-pinch": "https://esm.sh/react-zoom-pan-pinch@3.3.0?deps=react@18.2.0,react-dom@18.2.0",
+    "react-pageflip": "https://esm.sh/react-pageflip@2.0.3?deps=react@18.2.0,react-dom@18.2.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "firebase/": "https://esm.sh/firebase@^12.9.0/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-white text-cool font-sans antialiased">
+    <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
