@@ -16,17 +16,59 @@ interface FlipbookViewerProps {
   isPublic?: boolean; 
 }
 
-// 1. IMPROVED PAGE COMPONENT - Must use forwardRef for react-pageflip
+// Helper hook for debouncing resize
+function useDebouncedResize(delay: number) {
+  const [size, setSize] = useState<{ width: number, height: number } | null>(null);
+
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    const handleResize = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        setSize({ width: window.innerWidth, height: window.innerHeight });
+      }, delay);
+    };
+
+    // Initial set
+    handleResize();
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(timeoutId);
+    };
+  }, [delay]);
+
+  return size;
+}
+
+// 1. PAGE CONTENT COMPONENT
 const PageContent = React.forwardRef<HTMLDivElement, any>((props, ref) => {
     return (
-        <div ref={ref} className="bg-white shadow-xl h-full w-full overflow-hidden" data-density="soft">
-            <div className="w-full h-full flex items-center justify-center relative">
-               {/* Show spinner while individual page renders */}
-               <div className="absolute inset-0 flex items-center justify-center -z-10 bg-gray-50">
-                    <Loader2 className="animate-spin text-gray-300" size={20} />
+        <div 
+            ref={ref} 
+            style={{ 
+                width: props.width, 
+                height: props.height,
+                padding: 0,
+                margin: 0,
+                backgroundColor: '#ffffff', // Restored white background for visibility
+                backfaceVisibility: 'hidden', 
+                WebkitBackfaceVisibility: 'hidden',
+                overflow: 'hidden',
+                position: 'relative'
+            }}
+            className="shadow-sm"
+        >
+               {/* Spinner BEHIND the PDF Page */}
+               <div className="absolute inset-0 flex items-center justify-center z-0 bg-white">
+                    <Loader2 className="animate-spin text-gray-200" size={32} />
                </div>
-               {props.children}
-            </div>
+               
+               {/* PDF Page Wrapper */}
+               <div className="relative z-10 w-full h-full block">
+                   {props.children}
+               </div>
         </div>
     );
 });
@@ -34,37 +76,32 @@ PageContent.displayName = 'PageContent';
 
 const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onShare, isPublic = false }) => {
   const [numPages, setNumPages] = useState<number>(0);
-  const [windowSize, setWindowSize] = useState<{width: number, height: number} | null>(null);
+  const [pdfDimensions, setPdfDimensions] = useState<{width: number, height: number} | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [loadStatus, setLoadStatus] = useState<'loading' | 'success' | 'error'>('loading');
+  
+  const windowSize = useDebouncedResize(150);
   
   const bookRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     recordView(booklet.id);
-    
-    const handleResize = () => {
-        if (typeof window !== 'undefined') {
-             requestAnimationFrame(() => {
-                setWindowSize({ width: window.innerWidth, height: window.innerHeight });
-             });
-        }
-    };
-
-    handleResize();
-    const timer = setTimeout(handleResize, 100);
-    window.addEventListener('resize', handleResize);
-    return () => {
-        window.removeEventListener('resize', handleResize);
-        clearTimeout(timer);
-    };
   }, [booklet.id]);
 
-  const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
-    setNumPages(numPages);
-    setLoadStatus('success');
+  const onDocumentLoadSuccess = async (pdf: any) => {
+    setNumPages(pdf.numPages);
+    try {
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 1 });
+        setPdfDimensions({ width: viewport.width, height: viewport.height });
+        setLoadStatus('success');
+    } catch (e) {
+        console.error("Could not get page dimensions", e);
+        setPdfDimensions({ width: 600, height: 800 }); 
+        setLoadStatus('success');
+    }
   };
 
   const onDocumentLoadError = (error: Error) => {
@@ -90,75 +127,90 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
     }
   };
 
-  // 2. DIMENSION CALCULATION - Fixed strict constraints
+  // 2. PRECISE DIMENSION CALCULATION
   const dims = useMemo(() => {
-    if (!windowSize || windowSize.width <= 0 || windowSize.height <= 0) return null;
+    if (!windowSize || !pdfDimensions) return null;
+    
+    const ratio = pdfDimensions.width / pdfDimensions.height;
+    
+    // SAFETY MARGINS (Swing Space)
+    const availableW = windowSize.width;
+    const availableH = windowSize.height;
 
-    // Available screen space minus interface elements
-    const availableH = windowSize.height - 100; 
-    const availableW = windowSize.width - 40; 
-    const isPortrait = availableW < availableH;
+    const MAX_HEIGHT = availableH * 0.82; 
     
-    // Standard A4 Ratio (1.414)
-    const ratio = 1.414;
-    
-    // Determine max possible height based on screen
-    let h = Math.min(availableH, 1200);
-    
-    // Determine width: If single page (portrait), width is H/ratio. If spread, width is (H/ratio)
-    // NOTE: HTMLFlipBook width/height props are for ONE PAGE
-    let w = h / ratio;
+    // Auto-detect mode based on PDF shape
+    const isLandscapeDoc = ratio > 1.2;
+    const isMobile = windowSize.width < 768;
 
-    // Check if double spread fits in width
-    if (!isPortrait && (w * 2) > availableW) {
-        // If not, scale down based on width
-        w = availableW / 2;
-        h = w * ratio;
-    } else if (isPortrait && w > availableW) {
-        w = availableW;
-        h = w * ratio;
+    const MAX_WIDTH_PER_PAGE = (isMobile || isLandscapeDoc) 
+        ? (availableW * 0.90) 
+        : (availableW * 0.42);
+
+    // 1. Calculate based on Height first
+    let pageHeight = MAX_HEIGHT;
+    let pageWidth = pageHeight * ratio;
+
+    // 2. If Width is too big, constrain by Width
+    if (pageWidth > MAX_WIDTH_PER_PAGE) {
+        pageWidth = MAX_WIDTH_PER_PAGE;
+        pageHeight = pageWidth / ratio;
     }
-    
-    return { 
-      pageWidth: Math.floor(w), 
-      pageHeight: Math.floor(h), 
-      isPortrait 
-    };
-  }, [windowSize]);
 
-  if (!windowSize || !dims) {
-    return (
-      <div className="fixed inset-0 z-[9999] bg-[#0d0d0d] flex items-center justify-center">
-         <Loader2 className="animate-spin text-white/20" size={40} />
-      </div>
-    );
-  }
+    // 3. Integer rounding (prevents blurry text)
+    pageWidth = Math.floor(pageWidth);
+    pageHeight = Math.floor(pageHeight);
+
+    // Ensure even numbers
+    if (pageWidth % 2 !== 0) pageWidth -= 1;
+    if (pageHeight % 2 !== 0) pageHeight -= 1;
+
+    return { 
+        pageWidth, 
+        pageHeight, 
+        usePortrait: isMobile || isLandscapeDoc 
+    };
+  }, [windowSize, pdfDimensions]);
+
+  const transformKey = dims ? `${dims.pageWidth}-${dims.pageHeight}-${dims.usePortrait}` : 'loading';
+
+  if (!windowSize) return null;
 
   return (
     <div className="fixed inset-0 z-[9999] bg-[#0d0d0d] flex flex-col h-screen w-screen overflow-hidden select-none" ref={containerRef}>
-        {/* Header */}
+        
+        {/* --- Header --- */}
         <div className="h-16 bg-black/95 backdrop-blur-xl border-b border-white/10 flex items-center justify-between px-6 z-[100] flex-shrink-0">
-            <div className="flex items-center gap-4">
-                <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-white/50 hover:text-white transition-colors">
+            <div className="flex items-center gap-4 flex-1 min-w-0">
+                <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-white/50 hover:text-white transition-colors flex-shrink-0">
                     {isPublic ? <BookOpen size={20} /> : <X size={20} />}
                 </button>
-                <div className="flex flex-col cursor-pointer" onClick={onClose}>
-                    <h1 className="font-serif text-sm font-bold text-white truncate max-w-[150px] uppercase tracking-wider">{booklet.title}</h1>
+                <div className="flex flex-col cursor-pointer min-w-0" onClick={onClose}>
+                    <h1 className="font-serif text-sm font-bold text-white uppercase tracking-wider whitespace-nowrap overflow-hidden text-ellipsis">
+                        {booklet.title}
+                    </h1>
                 </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-shrink-0 ml-4">
                  <button onClick={onShare} className="flex items-center gap-2 px-4 py-1.5 text-[10px] font-bold text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all uppercase tracking-widest">
                     <Share2 size={12} />
                     <span>Share</span>
                 </button>
-                <a href={booklet.url} download className="p-2 text-white/40 hover:text-white transition-colors"><Download size={20} /></a>
+                <a 
+                    href={booklet.url} 
+                    download 
+                    className="flex items-center gap-2 px-4 py-1.5 text-[10px] font-bold text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all uppercase tracking-widest"
+                >
+                    <Download size={12} />
+                    <span>Download</span>
+                </a>
             </div>
         </div>
 
-        {/* Viewer */}
+        {/* --- Main Viewer Area --- */}
         <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
              
-             {loadStatus === 'loading' && (
+             {(loadStatus === 'loading' || !dims) && (
                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0d0d0d] z-50">
                      <Loader2 className="animate-spin text-white/20 mb-4" size={40} />
                      <span className="text-[10px] font-bold text-white/20 uppercase tracking-[0.5em]">Loading Folio</span>
@@ -173,11 +225,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
                  </div>
              )}
 
-             {/* 
-                 3. DOCUMENT LOADING STRATEGY
-                 Load Document invisible first to get numPages, THEN render FlipBook.
-                 Do not wrap FlipBook in Document as it causes re-renders on page change.
-             */}
+             {/* Hidden Loader */}
              <div className="hidden">
                  <Document 
                     file={booklet.url} 
@@ -186,68 +234,98 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
                  />
              </div>
 
-             <TransformWrapper
-                initialScale={1}
-                minScale={0.5}
-                maxScale={4}
-                centerOnInit
-                centerZoomedOut
-                limitToBounds={false}
-             >
-                {({ zoomIn, zoomOut, resetTransform }) => (
-                    <>
-                        <TransformComponent wrapperClass="!w-screen !h-full" contentClass="!w-full !h-full flex items-center justify-center">
-                            {/* 4. FLIPBOOK RENDERING */}
-                            {loadStatus === 'success' && numPages > 0 && (
-                                <div className="flex items-center justify-center py-10" style={{ maxWidth: '100vw', maxHeight: '100vh' }}>
-                                    <HTMLFlipBook
-                                        width={dims.pageWidth}
-                                        height={dims.pageHeight}
-                                        size="fixed"
-                                        minWidth={dims.pageWidth} // Lock dimensions to prevent resize loop
-                                        maxWidth={dims.pageWidth}
-                                        minHeight={dims.pageHeight}
-                                        maxHeight={dims.pageHeight}
-                                        maxShadowOpacity={0.5}
-                                        showCover={true}
-                                        mobileScrollSupport={true}
-                                        ref={bookRef}
-                                        onFlip={(e) => setCurrentPage(e.data)}
-                                        className="shadow-2xl"
-                                        startPage={0}
-                                        drawShadow={true}
-                                        flippingTime={1000}
-                                        usePortrait={dims.isPortrait}
-                                        autoSize={true} // Allow it to calculate initially, then lock via props
-                                        clickEventForward={true}
-                                        useMouseEvents={true}
-                                        swipeDistance={30}
-                                        showPageCorners={true}
-                                        disableFlipByClick={false}
-                                        style={{ margin: '0 auto' }}
-                                    >
-                                        {/* Render pages explicitly using the Document context for each one */}
-                                        {Array.from(new Array(numPages), (el, index) => (
-                                            <PageContent key={`page_${index}`}>
-                                                <Document file={booklet.url} loading={null}>
-                                                    <Page 
-                                                        pageNumber={index + 1} 
-                                                        width={dims.pageWidth} // Match container exactly
-                                                        renderTextLayer={false}
-                                                        renderAnnotationLayer={false}
-                                                        loading={null}
-                                                        error="Failed to load page"
-                                                    />
-                                                </Document>
-                                            </PageContent>
-                                        ))}
-                                    </HTMLFlipBook>
-                                </div>
-                            )}
-                        </TransformComponent>
+             {/* Flipbook with Zoom */}
+             {dims && loadStatus === 'success' && (
+                <TransformWrapper
+                    key={transformKey} 
+                    initialScale={1}
+                    minScale={0.5}
+                    maxScale={4}
+                    centerOnInit={true}
+                    centerZoomedOut={true}
+                    limitToBounds={false}
+                    wheel={{ step: 0.1 }}
+                >
+                    {({ zoomIn, zoomOut, resetTransform }) => (
+                        <>
+                            {/* Allow overflow so 3D pages don't clip */}
+                            <TransformComponent 
+                                wrapperClass="!w-screen !h-full !overflow-visible" 
+                                contentClass="!w-full !h-full flex items-center justify-center !overflow-visible"
+                            >
+                                {numPages > 0 && (
+                                    // Padding here creates the "Safe Zone" for page turning
+                                    <div style={{ width: 'auto', height: 'auto', padding: '20px' }}>
+                                        <HTMLFlipBook
+                                            width={dims.pageWidth}
+                                            height={dims.pageHeight}
+                                            size="fixed"
+                                            minWidth={dims.pageWidth}
+                                            maxWidth={dims.pageWidth}
+                                            minHeight={dims.pageHeight}
+                                            maxHeight={dims.pageHeight}
+                                            maxShadowOpacity={0.3} 
+                                            showCover={true}
+                                            mobileScrollSupport={true}
+                                            ref={bookRef}
+                                            onFlip={(e) => setCurrentPage(e.data)}
+                                            className="shadow-2xl"
+                                            startPage={0}
+                                            drawShadow={true}
+                                            flippingTime={800}
+                                            usePortrait={dims.usePortrait}
+                                            startZIndex={0}
+                                            autoSize={false}
+                                            clickEventForward={true}
+                                            useMouseEvents={true}
+                                            swipeDistance={30}
+                                            showPageCorners={true}
+                                            disableFlipByClick={false}
+                                            style={{ margin: '0 auto' }}
+                                        >
+                                            {Array.from(new Array(numPages), (el, index) => (
+                                                <PageContent 
+                                                    key={`page_${index}`} 
+                                                    width={dims.pageWidth} 
+                                                    height={dims.pageHeight}
+                                                >
+                                                    <Document file={booklet.url} loading={null}>
+                                                        <Page 
+                                                            key={`pdf_page_${index}_${dims.pageWidth}`}
+                                                            pageNumber={index + 1} 
+                                                            width={dims.pageWidth} 
+                                                            height={dims.pageHeight}
+                                                            renderTextLayer={false}
+                                                            renderAnnotationLayer={false}
+                                                            loading={null}
+                                                            error="Failed to load page"
+                                                            className="bg-white" 
+                                                        />
+                                                    </Document>
+                                                </PageContent>
+                                            ))}
+                                        </HTMLFlipBook>
+                                    </div>
+                                )}
+                            </TransformComponent>
 
-                        {/* Controls */}
-                        {loadStatus === 'success' && (
+                            {/* Controls Overlay */}
+                            <button 
+                                onClick={handlePrev}
+                                disabled={currentPage === 0}
+                                className="fixed left-4 lg:left-8 top-1/2 -translate-y-1/2 z-[150] p-4 rounded-full text-white/40 hover:text-white hover:bg-black/40 hover:backdrop-blur-sm transition-all duration-300 disabled:opacity-0 disabled:pointer-events-none group"
+                            >
+                                <ChevronLeft size={48} strokeWidth={1} className="group-hover:-translate-x-1 transition-transform" />
+                            </button>
+
+                            <button 
+                                onClick={handleNext}
+                                disabled={currentPage >= numPages - 1}
+                                className="fixed right-4 lg:right-8 top-1/2 -translate-y-1/2 z-[150] p-4 rounded-full text-white/40 hover:text-white hover:bg-black/40 hover:backdrop-blur-sm transition-all duration-300 disabled:opacity-0 disabled:pointer-events-none group"
+                            >
+                                <ChevronRight size={48} strokeWidth={1} className="group-hover:translate-x-1 transition-transform" />
+                            </button>
+
                             <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-2 bg-[#1a1a1a]/95 backdrop-blur-2xl p-1.5 rounded-full border border-white/10 shadow-2xl">
                                 <div className="flex items-center gap-1 bg-black/40 rounded-full px-4 py-1.5 border border-white/5">
                                     <button onClick={handlePrev} className="p-1 hover:text-white text-white/30 disabled:opacity-0" disabled={currentPage === 0}><ChevronLeft size={22} /></button>
@@ -267,10 +345,10 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
                                     </button>
                                 </div>
                             </div>
-                        )}
-                    </>
-                )}
-            </TransformWrapper>
+                        </>
+                    )}
+                </TransformWrapper>
+             )}
         </div>
     </div>
   );

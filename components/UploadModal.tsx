@@ -73,7 +73,9 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
         canvas.width = viewport.width;
 
         if (context) {
-            await page.render({ canvasContext: context, viewport }).promise;
+            // Fix: Cast to any to avoid type mismatch on 'RenderParameters' which varies between versions
+            // This prevents build errors in strict TypeScript environments
+            await page.render({ canvasContext: context, viewport } as any).promise;
             const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
             setCoverPreview(dataUrl);
         }

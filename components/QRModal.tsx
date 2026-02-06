@@ -19,7 +19,7 @@ const QRModal: React.FC<QRModalProps> = ({ isOpen, onClose, url, title }) => {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
            <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -31,7 +31,7 @@ const QRModal: React.FC<QRModalProps> = ({ isOpen, onClose, url, title }) => {
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
-            className="relative bg-white rounded-xl p-8 max-w-sm w-full shadow-2xl text-center"
+            className="relative bg-white rounded-xl p-8 max-w-sm w-full shadow-2xl text-center z-[10001]"
           >
             <button onClick={onClose} className="absolute top-4 right-4 text-cool hover:text-dark">
                 <X size={20} />
