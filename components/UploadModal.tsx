@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, UploadCloud, FileText, CheckCircle, AlertCircle, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { X, UploadCloud, FileText, CheckCircle, AlertCircle, Image as ImageIcon, Loader2, RefreshCw, Calendar, EyeOff, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { uploadPDF } from '../services/firebase';
+import { uploadPDF, updateBooklet, isAppInDemoMode } from '../services/firebase';
 import { pdfjs } from 'react-pdf';
+import { Booklet } from '../types';
 
 // Ensure worker is configured for cover generation
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
@@ -10,13 +11,17 @@ pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@3.11.174/bui
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onUploadComplete: (booklet: any) => void;
+  onUploadComplete: (booklet: Booklet) => void;
+  initialBooklet?: Booklet | null; // If present, we are in EDIT/REPUBLISH mode
 }
 
-const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComplete }) => {
+const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComplete, initialBooklet }) => {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [statusMode, setStatusMode] = useState<'published' | 'scheduled' | 'draft'>('published');
+  const [scheduleDate, setScheduleDate] = useState<string>('');
+  
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   
@@ -25,6 +30,32 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
   const [generatingCover, setGeneratingCover] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isDemo = isAppInDemoMode();
+  const isEditMode = !!initialBooklet;
+
+  // Pre-fill data when opening in edit mode
+  useEffect(() => {
+    if (isOpen && initialBooklet) {
+        setTitle(initialBooklet.title);
+        setDescription(initialBooklet.description);
+        setCoverPreview(initialBooklet.coverUrl || null);
+        setStatusMode(initialBooklet.status || 'published');
+        
+        if (initialBooklet.scheduledAt) {
+            const date = new Date(initialBooklet.scheduledAt);
+            // Format to YYYY-MM-DDTHH:MM for input type="datetime-local"
+            const isoString = date.toISOString().slice(0, 16);
+            setScheduleDate(isoString);
+            setStatusMode('scheduled');
+        } else {
+            setScheduleDate('');
+        }
+
+        setFile(null); 
+    } else if (isOpen && !initialBooklet) {
+        resetForm();
+    }
+  }, [isOpen, initialBooklet]);
 
   const generateCover = async (pdfFile: File) => {
     setGeneratingCover(true);
@@ -60,8 +91,8 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
       if (selectedFile.type === 'application/pdf') {
         setFile(selectedFile);
         
-        // Only auto-fill title if empty to prevent overwriting user input
-        if (!title.trim()) {
+        // Only auto-fill title if empty and not editing
+        if (!title.trim() && !isEditMode) {
             setTitle(selectedFile.name.replace('.pdf', ''));
         }
 
@@ -75,23 +106,47 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return;
+    if (!isEditMode && !file) return;
 
     setStatus('uploading');
     setProgress(0);
 
+    const scheduledTimestamp = statusMode === 'scheduled' && scheduleDate ? new Date(scheduleDate).getTime() : undefined;
+    const finalStatus = statusMode;
+
     try {
-      const booklet = await uploadPDF(
-        file, 
-        { title, description, ownerId: 'demo-user' }, 
-        (p) => setProgress(p),
-        coverPreview // Pass the generated cover
-      );
+      let resultBooklet: Booklet;
+
+      const metadata = { 
+        title, 
+        description,
+        status: finalStatus,
+        scheduledAt: scheduledTimestamp
+      };
+
+      if (isEditMode && initialBooklet) {
+        // REPUBLISH
+        resultBooklet = await updateBooklet(
+            initialBooklet.id,
+            file,
+            metadata,
+            (p) => setProgress(p),
+            coverPreview
+        );
+      } else {
+        // NEW UPLOAD
+        resultBooklet = await uploadPDF(
+            file!, 
+            { ...metadata, ownerId: 'demo-user' }, 
+            (p) => setProgress(p),
+            coverPreview 
+        );
+      }
       
       setStatus('success');
       setTimeout(() => {
-        onUploadComplete(booklet);
-        resetForm();
+        onUploadComplete(resultBooklet);
+        if (!isEditMode) resetForm();
       }, 1000);
       
     } catch (err) {
@@ -107,6 +162,8 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
     setCoverPreview(null);
     setProgress(0);
     setStatus('idle');
+    setStatusMode('published');
+    setScheduleDate('');
   };
 
   return (
@@ -125,11 +182,13 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative w-full max-w-2xl bg-white rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            className="relative w-full max-w-3xl bg-white rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[95vh]"
           >
             {/* Header */}
             <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 flex-shrink-0">
-              <h2 className="font-serif text-2xl text-dark">Upload Publication</h2>
+              <h2 className="font-serif text-2xl text-dark">
+                {isEditMode ? 'Edit Publication' : 'Upload Publication'}
+              </h2>
               <button onClick={onClose} className="text-cool hover:text-dark transition-colors">
                 <X size={24} />
               </button>
@@ -146,17 +205,33 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
                   >
                     <CheckCircle size={32} />
                   </motion.div>
-                  <h3 className="font-serif text-2xl text-dark mb-2">Upload Complete</h3>
-                  <p className="text-cool">Your booklet is being processed...</p>
+                  <h3 className="font-serif text-2xl text-dark mb-2">
+                      {isEditMode ? 'Updates Saved' : 'Upload Complete'}
+                  </h3>
+                  <p className="text-cool">
+                    {statusMode === 'draft' ? 'Saved as draft. Only admins can see this.' : 
+                     statusMode === 'scheduled' ? `Scheduled for release on ${new Date(scheduleDate).toLocaleDateString()}.` : 
+                     'Your booklet is now live.'}
+                  </p>
                 </div>
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-6">
                   
-                  <div className="flex gap-6 flex-col md:flex-row">
-                      {/* File Drop / Preview Area */}
-                      <div className="flex-1">
+                  {isEditMode && (
+                     <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex gap-3 text-blue-900 mb-4">
+                        <RefreshCw className="w-5 h-5 shrink-0 text-blue-600 mt-0.5" />
+                        <div className="text-xs">
+                            <p className="font-bold mb-1">Editing Mode</p>
+                            <p>You are updating <strong>{initialBooklet?.title}</strong>. Changes to metadata or status are instantaneous. Uploading a new PDF will replace the existing file.</p>
+                        </div>
+                     </div>
+                  )}
+
+                  <div className="flex gap-8 flex-col md:flex-row">
+                      {/* Left: File & Cover */}
+                      <div className="w-full md:w-1/3 flex-shrink-0">
                           <div 
-                            className={`border-2 border-dashed rounded-xl h-64 flex flex-col items-center justify-center text-center transition-colors cursor-pointer relative overflow-hidden ${file ? 'border-warm bg-gray-50' : 'border-gray-200 hover:border-warm/50 hover:bg-gray-50'}`}
+                            className={`border-2 border-dashed rounded-xl h-64 flex flex-col items-center justify-center text-center transition-colors cursor-pointer relative overflow-hidden mb-2 ${file ? 'border-warm bg-gray-50' : 'border-gray-200 hover:border-warm/50 hover:bg-gray-50'}`}
                             onClick={() => fileInputRef.current?.click()}
                           >
                             <input 
@@ -176,47 +251,122 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
                                 <div className="absolute inset-0 w-full h-full group">
                                     <img src={coverPreview} alt="Cover Preview" className="w-full h-full object-contain p-4" />
                                     <div className="absolute inset-0 bg-dark/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                        <span className="text-white font-semibold flex items-center gap-2"><UploadCloud size={16}/> Change PDF</span>
+                                        <span className="text-white font-semibold flex items-center gap-2"><UploadCloud size={16}/> {isEditMode ? 'Replace' : 'Change'}</span>
                                     </div>
                                 </div>
                             ) : file ? (
                               <div className="flex flex-col items-center gap-2 text-dark p-4">
                                 <FileText className="text-warm" size={32} />
                                 <span className="font-medium text-sm line-clamp-2">{file.name}</span>
-                                <span className="text-xs text-cool">{(file.size / 1024 / 1024).toFixed(2)} MB</span>
                               </div>
                             ) : (
                               <div className="space-y-2 p-4">
-                                <UploadCloud className="mx-auto text-warm" size={48} strokeWidth={1} />
-                                <p className="text-lg font-medium text-dark">Browse or Drag PDF</p>
-                                <p className="text-xs text-cool">Max quality, no size limit</p>
+                                <UploadCloud className="mx-auto text-warm" size={36} strokeWidth={1} />
+                                <p className="text-sm font-medium text-dark">
+                                    {isEditMode ? 'Upload New PDF' : 'Drag PDF Here'}
+                                </p>
                               </div>
                             )}
                           </div>
+                          {file && <p className="text-xs text-center text-cool">{(file.size / 1024 / 1024).toFixed(2)} MB</p>}
                       </div>
 
-                      {/* Metadata Inputs */}
-                      <div className="flex-1 space-y-4">
+                      {/* Right: Metadata & Schedule */}
+                      <div className="flex-1 space-y-5">
                         <div>
-                          <label className="block text-sm font-semibold text-cool uppercase tracking-wide mb-1">Title</label>
+                          <label className="block text-xs font-semibold text-cool uppercase tracking-wide mb-1.5">Title</label>
                           <input 
                             type="text" 
                             required
                             value={title}
                             onChange={(e) => setTitle(e.target.value)}
-                            className="w-full px-4 py-3 rounded-md border border-gray-200 focus:border-dark focus:ring-1 focus:ring-dark outline-none transition-all font-serif text-lg placeholder-gray-300"
+                            className="w-full px-4 py-2.5 rounded-md border border-gray-200 focus:border-dark focus:ring-1 focus:ring-dark outline-none transition-all font-serif text-lg placeholder-gray-300"
                             placeholder="e.g., Spring Catalog 2024"
                           />
                         </div>
+                        
                         <div>
-                          <label className="block text-sm font-semibold text-cool uppercase tracking-wide mb-1">Description</label>
+                          <label className="block text-xs font-semibold text-cool uppercase tracking-wide mb-1.5">Description</label>
                           <textarea 
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
-                            className="w-full px-4 py-3 rounded-md border border-gray-200 focus:border-dark focus:ring-1 focus:ring-dark outline-none transition-all font-sans text-base h-32 resize-none placeholder-gray-300"
+                            className="w-full px-4 py-2.5 rounded-md border border-gray-200 focus:border-dark focus:ring-1 focus:ring-dark outline-none transition-all font-sans text-sm h-24 resize-none placeholder-gray-300"
                             placeholder="Brief summary..."
                           />
                         </div>
+
+                        {/* Publishing Options */}
+                        <div className="bg-gray-50 p-4 rounded-lg border border-gray-100">
+                            <label className="block text-xs font-semibold text-cool uppercase tracking-wide mb-3">Publishing Status</label>
+                            
+                            <div className="flex flex-col gap-3">
+                                {/* Option 1: Publish Now */}
+                                <label className="flex items-center gap-3 cursor-pointer group">
+                                    <input 
+                                        type="radio" 
+                                        name="status" 
+                                        checked={statusMode === 'published'} 
+                                        onChange={() => setStatusMode('published')}
+                                        className="w-4 h-4 text-dark focus:ring-dark border-gray-300"
+                                    />
+                                    <div className="flex items-center gap-2 text-dark">
+                                        <Globe size={16} className="text-cool group-hover:text-dark" />
+                                        <span className="text-sm font-medium">Release Now</span>
+                                    </div>
+                                </label>
+
+                                {/* Option 2: Schedule */}
+                                <label className="flex items-center gap-3 cursor-pointer group">
+                                    <input 
+                                        type="radio" 
+                                        name="status" 
+                                        checked={statusMode === 'scheduled'} 
+                                        onChange={() => setStatusMode('scheduled')}
+                                        className="w-4 h-4 text-dark focus:ring-dark border-gray-300"
+                                    />
+                                    <div className="flex items-center gap-2 text-dark flex-1">
+                                        <Calendar size={16} className="text-cool group-hover:text-dark" />
+                                        <span className="text-sm font-medium">Schedule Release</span>
+                                    </div>
+                                </label>
+                                
+                                <AnimatePresence>
+                                    {statusMode === 'scheduled' && (
+                                        <motion.div 
+                                            initial={{ height: 0, opacity: 0 }} 
+                                            animate={{ height: 'auto', opacity: 1 }}
+                                            exit={{ height: 0, opacity: 0 }}
+                                            className="ml-7 overflow-hidden"
+                                        >
+                                            <input 
+                                                type="datetime-local" 
+                                                value={scheduleDate}
+                                                onChange={(e) => setScheduleDate(e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-cool focus:border-dark outline-none"
+                                                min={new Date().toISOString().slice(0, 16)}
+                                            />
+                                            <p className="text-[10px] text-cool mt-1">Files are hidden from public until this time.</p>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+
+                                {/* Option 3: Draft */}
+                                <label className="flex items-center gap-3 cursor-pointer group">
+                                    <input 
+                                        type="radio" 
+                                        name="status" 
+                                        checked={statusMode === 'draft'} 
+                                        onChange={() => setStatusMode('draft')}
+                                        className="w-4 h-4 text-dark focus:ring-dark border-gray-300"
+                                    />
+                                    <div className="flex items-center gap-2 text-dark">
+                                        <EyeOff size={16} className="text-cool group-hover:text-dark" />
+                                        <span className="text-sm font-medium">Save as Draft</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
                       </div>
                   </div>
 
@@ -224,7 +374,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
                   {status === 'uploading' && (
                     <div className="space-y-2">
                         <div className="flex justify-between text-xs font-semibold uppercase text-cool">
-                            <span>Uploading...</span>
+                            <span>Processing...</span>
                             <span>{Math.round(progress)}%</span>
                         </div>
                         <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
@@ -241,7 +391,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
                   {status === 'error' && (
                       <div className="flex items-center gap-2 text-red-500 bg-red-50 p-3 rounded-md">
                           <AlertCircle size={18} />
-                          <span className="text-sm">Upload failed. Please try again.</span>
+                          <span className="text-sm">Operation failed. Please try again.</span>
                       </div>
                   )}
 
@@ -257,14 +407,18 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
                     </button>
                     <button 
                       type="submit" 
-                      disabled={!file || status === 'uploading'}
+                      disabled={(!file && !isEditMode) || status === 'uploading' || (statusMode === 'scheduled' && !scheduleDate)}
                       className={`px-8 py-3 rounded-full font-semibold transition-all ${
-                        !file || status === 'uploading' 
+                        (!file && !isEditMode) || status === 'uploading' || (statusMode === 'scheduled' && !scheduleDate)
                         ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
                         : 'bg-dark text-white hover:bg-cool shadow-lg hover:shadow-xl'
                       }`}
                     >
-                      {status === 'uploading' ? 'Uploading...' : 'Publish Now'}
+                      {status === 'uploading' ? 'Processing...' : (
+                          statusMode === 'draft' ? 'Save Draft' : 
+                          statusMode === 'scheduled' ? 'Schedule' : 
+                          isEditMode ? 'Save Changes' : 'Publish Now'
+                      )}
                     </button>
                   </div>
                 </form>

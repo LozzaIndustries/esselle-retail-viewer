@@ -1,14 +1,15 @@
 import React from 'react';
 import { Booklet } from '../types';
 import { motion } from 'framer-motion';
-import { Eye, Clock, FileText, ChevronRight } from 'lucide-react';
+import { Eye, Clock, FileText, RotateCw, Edit3, Calendar, EyeOff } from 'lucide-react';
 
 interface DashboardProps {
   booklets: Booklet[];
   onView: (id: string) => void;
+  onEdit: (booklet: Booklet) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ booklets, onView }) => {
+const Dashboard: React.FC<DashboardProps> = ({ booklets, onView, onEdit }) => {
   return (
     <div className="max-w-7xl mx-auto px-6 py-10">
       <header className="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -29,61 +30,89 @@ const Dashboard: React.FC<DashboardProps> = ({ booklets, onView }) => {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-10 gap-y-16">
-          {booklets.map((item, index) => (
-            <motion.div
-              key={item.id}
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05, duration: 0.5 }}
-              className="group cursor-pointer"
-              onClick={() => onView(item.id)}
-            >
-              {/* Premium Card Cover */}
-              <div className="relative aspect-[3/4] mb-6 shadow-md transition-all duration-500 group-hover:shadow-2xl group-hover:shadow-dark/20 group-hover:-translate-y-2">
-                <div className="absolute inset-0 bg-dark/5 group-hover:bg-dark/0 transition-colors z-10" />
-                
-                {/* Book Spine Effect */}
-                <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-black/10 z-20 shadow-inner" />
-                
-                {item.coverUrl ? (
-                  <img 
-                    src={item.coverUrl} 
-                    alt={item.title} 
-                    className="w-full h-full object-cover rounded-sm"
-                  />
-                ) : (
-                  <div className="w-full h-full bg-warm/20 flex items-center justify-center">
-                    <span className="font-serif text-xl text-cool/40 uppercase tracking-tighter">Edition</span>
-                  </div>
-                )}
-                
-                {/* Hover Action Overlay */}
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-30">
-                  <div className="bg-white/95 backdrop-blur-sm text-dark px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 transform scale-90 group-hover:scale-100 transition-transform">
-                    <Eye size={18} />
-                    View Edition
-                  </div>
-                </div>
-              </div>
+          {booklets.map((item, index) => {
+             const isDraft = item.status === 'draft';
+             const isScheduled = item.status === 'scheduled';
+             const isFuture = isScheduled && item.scheduledAt && item.scheduledAt > Date.now();
+             
+             return (
+                <motion.div
+                  key={item.id}
+                  initial={{ opacity: 0, y: 30 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05, duration: 0.5 }}
+                  className="group relative"
+                >
+                  {/* Premium Card Cover */}
+                  <div 
+                    className="relative aspect-[3/4] mb-6 shadow-md transition-all duration-500 group-hover:shadow-2xl group-hover:shadow-dark/20 group-hover:-translate-y-2 cursor-pointer"
+                    onClick={() => onView(item.id)}
+                  >
+                    <div className="absolute inset-0 bg-dark/5 group-hover:bg-dark/0 transition-colors z-10" />
+                    
+                    {/* Status Badge Overlays */}
+                    {isDraft && (
+                        <div className="absolute top-3 left-3 z-30 bg-gray-800/90 text-white px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 backdrop-blur-sm shadow-sm">
+                            <EyeOff size={10} /> DRAFT
+                        </div>
+                    )}
+                    {isFuture && (
+                        <div className="absolute top-3 left-3 z-30 bg-blue-600/90 text-white px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 backdrop-blur-sm shadow-sm">
+                            <Calendar size={10} /> {new Date(item.scheduledAt!).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
+                        </div>
+                    )}
 
-              {/* Meta Data */}
-              <div className="space-y-2 px-1">
-                <div className="flex items-center gap-2 text-[10px] font-bold text-warm uppercase tracking-[0.2em]">
-                  <Clock size={10} />
-                  {new Date(item.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
-                </div>
-                <h3 className="font-serif text-xl text-dark leading-snug group-hover:text-cool transition-colors truncate">
-                  {item.title}
-                </h3>
-                <p className="text-sm text-cool/60 line-clamp-2 leading-relaxed h-10">
-                  {item.description}
-                </p>
-                <div className="pt-4 flex items-center gap-1 text-xs font-bold text-dark opacity-0 group-hover:opacity-100 transition-all translate-x-[-10px] group-hover:translate-x-0">
-                  Analytics <ChevronRight size={14} />
-                </div>
-              </div>
-            </motion.div>
-          ))}
+                    {/* Book Spine Effect */}
+                    <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-black/10 z-20 shadow-inner" />
+                    
+                    {item.coverUrl ? (
+                      <img 
+                        src={item.coverUrl} 
+                        alt={item.title} 
+                        className={`w-full h-full object-cover rounded-sm ${isDraft ? 'grayscale opacity-80' : ''}`}
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-warm/20 flex items-center justify-center">
+                        <span className="font-serif text-xl text-cool/40 uppercase tracking-tighter">Edition</span>
+                      </div>
+                    )}
+                    
+                    {/* Hover Action Overlay */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-30 gap-3">
+                      <div className="bg-white/95 backdrop-blur-sm text-dark px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-2 transform scale-90 group-hover:scale-100 transition-transform">
+                        <Eye size={18} />
+                        Preview
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Action Bar (Only visible on hover/focus inside group) */}
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-40">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onEdit(item); }}
+                        className="bg-white p-2 rounded-full shadow-lg text-cool hover:text-dark hover:bg-gray-50 transition-colors"
+                        title="Edit / Manage"
+                      >
+                          <Edit3 size={16} />
+                      </button>
+                  </div>
+
+                  {/* Meta Data */}
+                  <div className="space-y-2 px-1 pointer-events-none">
+                    <div className="flex items-center gap-2 text-[10px] font-bold text-warm uppercase tracking-[0.2em]">
+                      <Clock size={10} />
+                      {new Date(item.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
+                    </div>
+                    <h3 className="font-serif text-xl text-dark leading-snug truncate">
+                      {item.title}
+                    </h3>
+                    <p className="text-sm text-cool/60 line-clamp-2 leading-relaxed h-10">
+                      {item.description}
+                    </p>
+                  </div>
+                </motion.div>
+             );
+          })}
         </div>
       )}
     </div>

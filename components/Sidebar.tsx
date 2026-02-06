@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { BookOpen, Settings, LogOut, Grid, BarChart2 } from 'lucide-react';
+import { BookOpen, Settings, LogOut, Grid, BarChart2, QrCode } from 'lucide-react';
 import { User } from '../types';
 
 interface SidebarProps {
@@ -19,7 +19,7 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, logoSrc }) => {
          ) : (
             <div className="flex flex-col items-center text-dark group cursor-default">
                 <BookOpen className="h-10 w-10 mb-4 opacity-90" strokeWidth={1} />
-                <span className="font-serif text-2xl font-bold tracking-tight text-dark">Lumière Folio</span>
+                <span className="font-serif text-2xl font-bold tracking-tight text-dark">Esselle Retail</span>
                 <span className="text-[8px] mt-4 tracking-[0.3em] uppercase font-bold text-[#8e8d8a] whitespace-nowrap">Premium Publication Platform</span>
             </div>
          )}
@@ -37,6 +37,18 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, logoSrc }) => {
         >
             <Grid size={18} />
             <span className="text-sm">Dashboard</span>
+        </NavLink>
+
+        <NavLink 
+            to="/qrcodes" 
+            className={({ isActive }) => 
+                `flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
+                    isActive ? 'bg-warm/10 text-dark font-semibold shadow-sm' : 'text-cool hover:bg-gray-50 hover:text-dark'
+                }`
+            }
+        >
+            <QrCode size={18} />
+            <span className="text-sm">QR Codes</span>
         </NavLink>
 
         <NavLink 

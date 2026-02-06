@@ -39,7 +39,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onUploadClick, onLogout
                 ) : (
                     <>
                         <BookOpen className="h-6 w-6 text-dark" />
-                        <span className="font-serif text-lg font-bold text-dark">Lumière</span>
+                        <span className="font-serif text-lg font-bold text-dark">Esselle Retail</span>
                     </>
                 )}
             </div>

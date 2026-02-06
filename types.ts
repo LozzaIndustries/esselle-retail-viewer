@@ -22,6 +22,8 @@ export interface Booklet {
   createdAt: number;
   ownerId?: string; // ID of the user who uploaded it
   stats?: BookletStats;
+  status?: 'published' | 'draft' | 'scheduled';
+  scheduledAt?: number;
 }
 
 export interface AppSettings {
