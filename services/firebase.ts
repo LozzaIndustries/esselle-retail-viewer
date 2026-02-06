@@ -13,14 +13,14 @@ const getEnv = (key: string, fallback: string) => {
 };
 
 // --- CONFIGURATION ---
-// REPLACE THESE with your actual Firebase project settings for live production
+// UPDATED: Connected to 'esselle-publisher-b3bbf'
 const firebaseConfig = {
-  apiKey: getEnv('REACT_APP_FIREBASE_API_KEY', "demo-key"),
-  authDomain: "lumiere-folio.firebaseapp.com",
-  projectId: "lumiere-folio",
-  storageBucket: "lumiere-folio.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abcdef"
+  apiKey: "AIzaSyD_3FRdlXO9dQEGNXXIRIllqKoOO-2tT8Q",
+  authDomain: "esselle-publisher-b3bbf.firebaseapp.com",
+  projectId: "esselle-publisher-b3bbf",
+  storageBucket: "esselle-publisher-b3bbf.firebasestorage.app",
+  messagingSenderId: "958825934813",
+  appId: "1:958825934813:web:81d9fe905c96284ab91034"
 };
 
 // --- MOCK DATA FOR DEVELOPMENT ---

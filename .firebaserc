@@ -1,15 +1,5 @@
 {
   "projects": {
-    "default": "lozzcoms-stable"
-  },
-  "targets": {
-    "lozzcoms-stable": {
-      "hosting": {
-        "publisher": [
-          "esselle-publisher"
-        ]
-      }
-    }
-  },
-  "etags": {}
+    "default": "esselle-publisher-b3bbf"
+  }
 }
