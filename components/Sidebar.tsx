@@ -12,73 +12,74 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, logoSrc }) => {
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-white border-r border-warm/20 flex flex-col z-40 hidden md:flex">
-      {/* Brand */}
-      <div className="h-20 flex items-center px-8 border-b border-warm/10">
+      {/* Brand Section - Updated to match provided brand image exactly */}
+      <div className="h-40 flex flex-col items-center justify-center px-8 border-b border-warm/10 bg-white">
          {logoSrc ? (
-            <img src={logoSrc} alt="Brand Logo" className="h-8 w-auto object-contain" />
+            <img src={logoSrc} alt="Brand Logo" className="h-16 w-auto object-contain" />
          ) : (
-            <div className="flex items-center gap-2 text-dark">
-                <BookOpen className="h-6 w-6" strokeWidth={1} />
-                <span className="font-serif text-xl font-bold tracking-tight">Lumière</span>
+            <div className="flex flex-col items-center text-dark group cursor-default">
+                <BookOpen className="h-10 w-10 mb-4 opacity-90" strokeWidth={1} />
+                <span className="font-serif text-2xl font-bold tracking-tight text-dark">Lumière Folio</span>
+                <span className="text-[8px] mt-4 tracking-[0.3em] uppercase font-bold text-[#8e8d8a] whitespace-nowrap">Premium Publication Platform</span>
             </div>
          )}
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-4 py-8 space-y-2">
+      <nav className="flex-1 px-4 py-8 space-y-2 overflow-y-auto">
         <NavLink 
             to="/" 
             className={({ isActive }) => 
                 `flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
-                    isActive ? 'bg-warm/10 text-dark font-semibold' : 'text-cool hover:bg-gray-50 hover:text-dark'
+                    isActive ? 'bg-warm/10 text-dark font-semibold shadow-sm' : 'text-cool hover:bg-gray-50 hover:text-dark'
                 }`
             }
         >
-            <Grid size={20} />
-            <span>Dashboard</span>
+            <Grid size={18} />
+            <span className="text-sm">Dashboard</span>
         </NavLink>
 
         <NavLink 
             to="/analytics" 
             className={({ isActive }) => 
                 `flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
-                    isActive ? 'bg-warm/10 text-dark font-semibold' : 'text-cool hover:bg-gray-50 hover:text-dark'
+                    isActive ? 'bg-warm/10 text-dark font-semibold shadow-sm' : 'text-cool hover:bg-gray-50 hover:text-dark'
                 }`
             }
         >
-            <BarChart2 size={20} />
-            <span>Analytics</span>
+            <BarChart2 size={18} />
+            <span className="text-sm">Analytics</span>
         </NavLink>
         
         <NavLink 
             to="/branding" 
             className={({ isActive }) => 
                 `flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
-                    isActive ? 'bg-warm/10 text-dark font-semibold' : 'text-cool hover:bg-gray-50 hover:text-dark'
+                    isActive ? 'bg-warm/10 text-dark font-semibold shadow-sm' : 'text-cool hover:bg-gray-50 hover:text-dark'
                 }`
             }
         >
-            <Settings size={20} />
-            <span>Branding</span>
+            <Settings size={18} />
+            <span className="text-sm">Branding</span>
         </NavLink>
       </nav>
 
       {/* User Footer */}
-      <div className="p-4 border-t border-warm/10">
+      <div className="p-4 border-t border-warm/10 bg-gray-50/30">
         <div className="flex items-center gap-3 px-4 py-3 mb-2">
-            <div className="w-8 h-8 rounded-full bg-dark text-white flex items-center justify-center text-xs font-bold">
+            <div className="w-9 h-9 rounded-full bg-dark text-white flex items-center justify-center text-sm font-bold shadow-md shadow-dark/10">
                 {user.email?.charAt(0).toUpperCase()}
             </div>
             <div className="overflow-hidden">
-                <p className="text-sm font-medium text-dark truncate">{user.displayName || 'Publisher'}</p>
-                <p className="text-xs text-cool truncate">{user.email}</p>
+                <p className="text-sm font-semibold text-dark truncate leading-none mb-1">{user.displayName || 'Publisher'}</p>
+                <p className="text-[10px] text-cool truncate opacity-70 uppercase tracking-tighter">{user.email}</p>
             </div>
         </div>
         <button 
             onClick={onLogout}
-            className="w-full flex items-center justify-center gap-2 text-sm text-cool hover:text-red-600 py-2 hover:bg-red-50 rounded-lg transition-colors"
+            className="w-full flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wider text-cool hover:text-red-600 py-3 hover:bg-red-50 rounded-lg transition-all border border-transparent hover:border-red-100"
         >
-            <LogOut size={16} />
+            <LogOut size={14} />
             <span>Sign Out</span>
         </button>
       </div>

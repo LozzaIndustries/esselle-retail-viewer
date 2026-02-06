@@ -141,6 +141,7 @@ export const fetchBooklets = async (ownerId?: string): Promise<Booklet[]> => {
         }
     };
 
+    // If we are explicitly in demo mode or have no DB, return demo content
     if (isDemoMode || !db) return getLocalData();
 
     try {
@@ -151,12 +152,13 @@ export const fetchBooklets = async (ownerId?: string): Promise<Booklet[]> => {
         const snapshot = await getDocs(q);
         const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booklet));
         
-        // In prod, if user has no booklets yet, still show mocks for visual consistency
-        if (data.length === 0) return getLocalData();
+        // CRITICAL FIX: If in production mode, we DO NOT fall back to demo data.
+        // We only show what is actually in the database.
         return data;
     } catch (e) {
         console.error("Fetch error:", e);
-        return getLocalData();
+        // On error in production, return empty to be safe
+        return [];
     }
 };
 
@@ -171,8 +173,8 @@ export const getBookletById = async (id: string): Promise<Booklet | null> => {
         if (docSnap.exists()) return { id: docSnap.id, ...docSnap.data() } as Booklet;
         return null;
     } catch (e) {
-        const all = await fetchBooklets();
-        return all.find(b => b.id === id) || null;
+        console.error("Get booklet error:", e);
+        return null;
     }
 };
 
@@ -235,7 +237,12 @@ export const uploadPDF = async (
 
 export const saveBrandingSettings = async (settings: AppSettings) => {
     if (isDemoMode || !db) {
-        localStorage.setItem('lumiere_settings', JSON.stringify(settings));
+        try {
+            localStorage.setItem('lumiere_settings', JSON.stringify(settings));
+        } catch (e) {
+            console.error("Storage quota exceeded or error", e);
+            throw new Error("Logo image is too large for browser storage.");
+        }
         return;
     }
     await setDoc(doc(db, 'config', 'global_settings'), settings, { merge: true });
@@ -243,8 +250,12 @@ export const saveBrandingSettings = async (settings: AppSettings) => {
 
 export const getBrandingSettings = async (): Promise<AppSettings> => {
     if (isDemoMode || !db) {
-        const s = localStorage.getItem('lumiere_settings');
-        return s ? JSON.parse(s) : {};
+        try {
+            const s = localStorage.getItem('lumiere_settings');
+            return s ? JSON.parse(s) : {};
+        } catch (e) {
+            return {};
+        }
     }
     try {
         const snap = await getDoc(doc(db, 'config', 'global_settings'));

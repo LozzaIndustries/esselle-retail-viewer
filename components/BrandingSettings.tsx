@@ -45,17 +45,15 @@ const BrandingSettings: React.FC<BrandingSettingsProps> = ({ currentSettings, on
             companyName
         };
 
-        // If just text changed, save that
-        if (!file && companyName !== currentSettings.companyName) {
-            await saveBrandingSettings(newSettings);
-        }
+        // FIXED: Always save to persistence layer, regardless of whether it's file or text
+        await saveBrandingSettings(newSettings);
 
         onUpdate(newSettings);
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
     } catch (e) {
         console.error(e);
-        alert('Failed to save settings');
+        alert('Failed to save settings. If in demo mode, image might be too large.');
     } finally {
         setSaving(false);
     }

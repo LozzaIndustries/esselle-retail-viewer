@@ -5,9 +5,11 @@ import { loginWithEmail } from '../services/firebase';
 
 interface LoginProps {
   onLoginSuccess: (user: any) => void;
+  logoSrc?: string;
+  companyName?: string;
 }
 
-const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
+const Login: React.FC<LoginProps> = ({ onLoginSuccess, logoSrc, companyName }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -51,9 +53,13 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         className="w-full max-w-md bg-white p-8 md:p-12 rounded-2xl shadow-xl border border-warm/20"
       >
         <div className="flex flex-col items-center mb-10 text-center">
-          <BookOpen className="h-10 w-10 text-dark mb-4" strokeWidth={1} />
-          <h1 className="font-serif text-3xl text-dark">Lumière Folio</h1>
-          <p className="text-cool text-sm mt-2 tracking-wide uppercase">Premium Publication Platform</p>
+          {logoSrc ? (
+              <img src={logoSrc} alt={companyName || "Logo"} className="h-16 w-auto mb-4 object-contain" />
+          ) : (
+              <BookOpen className="h-10 w-10 text-dark mb-4" strokeWidth={1} />
+          )}
+          <h1 className="font-serif text-4xl text-dark tracking-tight">{companyName || "Lumière Folio"}</h1>
+          <p className="text-[#8e8d8a] text-[9px] mt-4 tracking-[0.25em] uppercase font-semibold">Premium Publication Platform</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-5">
