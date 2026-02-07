@@ -73,7 +73,7 @@ const PageContent = React.forwardRef<HTMLDivElement, any>((props, ref) => {
                     <Loader2 className="animate-spin text-gray-200" size={32} />
                </div>
                
-               {/* PDF Page Wrapper */}
+               {/* PDF Page Wrapper - Children passed here are now the rendered Page or a placeholder */}
                <div className="relative z-10 w-full h-full block pointer-events-none">
                    {props.children}
                </div>
@@ -233,7 +233,8 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
     return { 
         pageWidth, 
         pageHeight, 
-        usePortrait: isMobile || isLandscapeDoc 
+        usePortrait: isMobile || isLandscapeDoc,
+        pixelRatio: isMobile ? 1.5 : 2 // CAP PIXEL RATIO FOR PERFORMANCE
     };
   }, [windowSize, pdfDimensions]);
 
@@ -270,6 +271,19 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
     
     style: { margin: '0 auto' }
   }), [dims]);
+
+  // VIRTUALIZATION HELPER
+  // Only render pages that are close to the current page to save memory and CPU
+  const shouldRenderPage = (pageIndex: number, current: number, total: number) => {
+    // Always render first and last few pages to ensure book structure
+    if (pageIndex < 2) return true;
+    
+    // Render current viewing area + buffer
+    // Page 0 (Cover) counts as 1 in FlipBook logic sometimes depending on view
+    // Generally, we check if index is within range [current - 2, current + 2]
+    const range = 2;
+    return (pageIndex >= current - range && pageIndex <= current + range + 1);
+  };
 
   if (!windowSize) return null;
 
@@ -321,112 +335,122 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
                  </div>
              )}
 
-             <div className="hidden">
-                 <Document 
-                    file={booklet.url} 
-                    onLoadSuccess={onDocumentLoadSuccess} 
-                    onLoadError={onDocumentLoadError} 
-                 />
-             </div>
-
-             {/* Flipbook with Zoom */}
-             {dims && loadStatus === 'success' && (
-                <TransformWrapper
-                    key={transformKey} 
-                    initialScale={1}
-                    minScale={0.5}
-                    maxScale={4}
-                    centerOnInit={true}
-                    centerZoomedOut={true}
-                    limitToBounds={false}
-                    wheel={{ step: 0.1 }}
-                    panning={{ excluded: ['flipbook-interactive-area'] }}
-                >
-                    {({ zoomIn, zoomOut, resetTransform }) => (
-                        <>
-                            <TransformComponent 
-                                wrapperClass="!w-screen !h-full !overflow-visible" 
-                                contentClass="!w-full !h-full flex items-center justify-center !overflow-visible"
-                            >
-                                {numPages > 0 && (
-                                    // Wrapper with click handler exclusion
-                                    <div 
-                                        className="flipbook-interactive-area"
-                                        style={{ width: 'auto', height: 'auto', padding: '20px' }}
-                                    >
-                                        <HTMLFlipBook
-                                            {...flipBookProps}
-                                            ref={bookRef}
-                                            onFlip={(e: any) => setCurrentPage(e.data)}
+             {/* 
+                CRITICAL OPTIMIZATION: 
+                The <Document> component is now WRAPPING the FlipBook.
+                Previously, it was inside every PageContent, causing the PDF to be re-parsed 50 times.
+             */}
+             <Document 
+                file={booklet.url} 
+                onLoadSuccess={onDocumentLoadSuccess} 
+                onLoadError={onDocumentLoadError} 
+                loading={null}
+                className="flex items-center justify-center"
+             >
+                 {dims && loadStatus === 'success' && (
+                    <TransformWrapper
+                        key={transformKey} 
+                        initialScale={1}
+                        minScale={0.5}
+                        maxScale={4}
+                        centerOnInit={true}
+                        centerZoomedOut={true}
+                        limitToBounds={false}
+                        wheel={{ step: 0.1 }}
+                        panning={{ excluded: ['flipbook-interactive-area'] }}
+                    >
+                        {({ zoomIn, zoomOut, resetTransform }) => (
+                            <>
+                                <TransformComponent 
+                                    wrapperClass="!w-screen !h-full !overflow-visible" 
+                                    contentClass="!w-full !h-full flex items-center justify-center !overflow-visible"
+                                >
+                                    {numPages > 0 && (
+                                        // Wrapper with click handler exclusion
+                                        <div 
+                                            className="flipbook-interactive-area"
+                                            style={{ width: 'auto', height: 'auto', padding: '20px' }}
                                         >
-                                            {Array.from(new Array(numPages), (el, index) => (
-                                                <PageContent 
-                                                    key={`page_${index}`} 
-                                                    width={dims.pageWidth} 
-                                                    height={dims.pageHeight}
-                                                    pageNumber={index}
-                                                    onPageClick={() => handlePageClick(index)}
-                                                >
-                                                    <Document file={booklet.url} loading={null}>
-                                                        <Page 
-                                                            key={`pdf_page_${index}_${dims.pageWidth}`}
-                                                            pageNumber={index + 1} 
-                                                            width={dims.pageWidth} 
-                                                            height={dims.pageHeight}
-                                                            renderTextLayer={false}
-                                                            renderAnnotationLayer={false}
-                                                            loading={null}
-                                                            error="Failed to load page"
-                                                            className="bg-white" 
-                                                        />
-                                                    </Document>
-                                                </PageContent>
-                                            ))}
-                                        </HTMLFlipBook>
+                                            <HTMLFlipBook
+                                                {...flipBookProps}
+                                                ref={bookRef}
+                                                onFlip={(e: any) => setCurrentPage(e.data)}
+                                            >
+                                                {Array.from(new Array(numPages), (el, index) => (
+                                                    <PageContent 
+                                                        key={`page_${index}`} 
+                                                        width={dims.pageWidth} 
+                                                        height={dims.pageHeight}
+                                                        pageNumber={index}
+                                                        onPageClick={() => handlePageClick(index)}
+                                                    >
+                                                        {shouldRenderPage(index, currentPage, numPages) ? (
+                                                            <Page 
+                                                                key={`pdf_page_${index}_${dims.pageWidth}`}
+                                                                pageNumber={index + 1} 
+                                                                width={dims.pageWidth} 
+                                                                height={dims.pageHeight}
+                                                                renderTextLayer={false}
+                                                                renderAnnotationLayer={false}
+                                                                loading={<div className="w-full h-full bg-white" />}
+                                                                error="Failed to load page"
+                                                                className="bg-white"
+                                                                devicePixelRatio={dims.pixelRatio} // Optimize resolution
+                                                            />
+                                                        ) : (
+                                                            <div className="w-full h-full bg-white flex items-center justify-center">
+                                                                {/* Lightweight placeholder for off-screen pages */}
+                                                                <div className="w-8 h-8 rounded-full border-2 border-gray-100" />
+                                                            </div>
+                                                        )}
+                                                    </PageContent>
+                                                ))}
+                                            </HTMLFlipBook>
+                                        </div>
+                                    )}
+                                </TransformComponent>
+
+                                {/* Controls Overlay */}
+                                <button 
+                                    onClick={handlePrev}
+                                    disabled={currentPage === 0}
+                                    className="fixed left-4 lg:left-8 top-1/2 -translate-y-1/2 z-[150] p-4 rounded-full text-white/40 hover:text-white hover:bg-black/40 hover:backdrop-blur-sm transition-all duration-300 disabled:opacity-0 disabled:pointer-events-none group"
+                                >
+                                    <ChevronLeft size={48} strokeWidth={1} className="group-hover:-translate-x-1 transition-transform" />
+                                </button>
+
+                                <button 
+                                    onClick={handleNext}
+                                    disabled={currentPage >= numPages - 1}
+                                    className="fixed right-4 lg:right-8 top-1/2 -translate-y-1/2 z-[150] p-4 rounded-full text-white/40 hover:text-white hover:bg-black/40 hover:backdrop-blur-sm transition-all duration-300 disabled:opacity-0 disabled:pointer-events-none group"
+                                >
+                                    <ChevronRight size={48} strokeWidth={1} className="group-hover:translate-x-1 transition-transform" />
+                                </button>
+
+                                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-2 bg-[#1a1a1a]/95 backdrop-blur-2xl p-1.5 rounded-full border border-white/10 shadow-2xl">
+                                    <div className="flex items-center gap-1 bg-black/40 rounded-full px-4 py-1.5 border border-white/5">
+                                        <button onClick={handlePrev} className="p-1 hover:text-white text-white/30 disabled:opacity-0" disabled={currentPage === 0}><ChevronLeft size={22} /></button>
+                                        <div className="flex items-center gap-2 min-w-[70px] justify-center text-white text-sm font-bold select-none">
+                                            {currentPage + 1} <span className="text-[9px] text-white/20 uppercase">/ {numPages}</span>
+                                        </div>
+                                        <button onClick={handleNext} className="p-1 hover:text-white text-white/30 disabled:opacity-0" disabled={currentPage >= numPages - 1}><ChevronRight size={22} /></button>
                                     </div>
-                                )}
-                            </TransformComponent>
-
-                            {/* Controls Overlay */}
-                            <button 
-                                onClick={handlePrev}
-                                disabled={currentPage === 0}
-                                className="fixed left-4 lg:left-8 top-1/2 -translate-y-1/2 z-[150] p-4 rounded-full text-white/40 hover:text-white hover:bg-black/40 hover:backdrop-blur-sm transition-all duration-300 disabled:opacity-0 disabled:pointer-events-none group"
-                            >
-                                <ChevronLeft size={48} strokeWidth={1} className="group-hover:-translate-x-1 transition-transform" />
-                            </button>
-
-                            <button 
-                                onClick={handleNext}
-                                disabled={currentPage >= numPages - 1}
-                                className="fixed right-4 lg:right-8 top-1/2 -translate-y-1/2 z-[150] p-4 rounded-full text-white/40 hover:text-white hover:bg-black/40 hover:backdrop-blur-sm transition-all duration-300 disabled:opacity-0 disabled:pointer-events-none group"
-                            >
-                                <ChevronRight size={48} strokeWidth={1} className="group-hover:translate-x-1 transition-transform" />
-                            </button>
-
-                            <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-2 bg-[#1a1a1a]/95 backdrop-blur-2xl p-1.5 rounded-full border border-white/10 shadow-2xl">
-                                <div className="flex items-center gap-1 bg-black/40 rounded-full px-4 py-1.5 border border-white/5">
-                                    <button onClick={handlePrev} className="p-1 hover:text-white text-white/30 disabled:opacity-0" disabled={currentPage === 0}><ChevronLeft size={22} /></button>
-                                    <div className="flex items-center gap-2 min-w-[70px] justify-center text-white text-sm font-bold select-none">
-                                        {currentPage + 1} <span className="text-[9px] text-white/20 uppercase">/ {numPages}</span>
+                                    <div className="flex items-center gap-1">
+                                        <button onClick={() => zoomOut()} className="p-3 text-white/30 hover:text-white transition-colors"><ZoomOut size={18} /></button>
+                                        <button onClick={() => resetTransform()} className="p-3 text-white/30 hover:text-white transition-colors"><RotateCcw size={16} /></button>
+                                        <button onClick={() => zoomIn()} className="p-3 text-white/30 hover:text-white transition-colors"><ZoomIn size={18} /></button>
                                     </div>
-                                    <button onClick={handleNext} className="p-1 hover:text-white text-white/30 disabled:opacity-0" disabled={currentPage >= numPages - 1}><ChevronRight size={22} /></button>
+                                    <div className="border-l border-white/10 ml-1 pl-1">
+                                        <button onClick={toggleFullScreen} className="p-3 text-white/30 hover:text-white transition-colors">
+                                            {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+                                        </button>
+                                    </div>
                                 </div>
-                                <div className="flex items-center gap-1">
-                                    <button onClick={() => zoomOut()} className="p-3 text-white/30 hover:text-white transition-colors"><ZoomOut size={18} /></button>
-                                    <button onClick={() => resetTransform()} className="p-3 text-white/30 hover:text-white transition-colors"><RotateCcw size={16} /></button>
-                                    <button onClick={() => zoomIn()} className="p-3 text-white/30 hover:text-white transition-colors"><ZoomIn size={18} /></button>
-                                </div>
-                                <div className="border-l border-white/10 ml-1 pl-1">
-                                    <button onClick={toggleFullScreen} className="p-3 text-white/30 hover:text-white transition-colors">
-                                        {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-                                    </button>
-                                </div>
-                            </div>
-                        </>
-                    )}
-                </TransformWrapper>
-             )}
+                            </>
+                        )}
+                    </TransformWrapper>
+                 )}
+            </Document>
         </div>
     </div>
   );

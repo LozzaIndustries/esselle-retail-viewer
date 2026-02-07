@@ -100,7 +100,7 @@ const BrandingSettings: React.FC<BrandingSettingsProps> = ({ currentSettings, on
                                 </div>
                                 <div>
                                     <h4 className="font-medium text-dark">Upload new logo</h4>
-                                    <p className="text-sm text-cool">Recommended: PNG with transparent background. Max height 60px.</p>
+                                    <p className="text-sm text-cool">Recommended: High-res PNG with transparent background. Min height 120px for best retina display.</p>
                                 </div>
                             </div>
                             <input 

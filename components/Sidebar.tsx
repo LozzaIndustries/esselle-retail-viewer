@@ -14,9 +14,9 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onOpenProfile, logoSr
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-white border-r border-warm/20 flex flex-col z-40 hidden md:flex">
       {/* Brand Section - Updated to match provided brand image exactly */}
-      <div className="h-40 flex flex-col items-center justify-center px-8 border-b border-warm/10 bg-white">
+      <div className="min-h-[160px] py-6 flex flex-col items-center justify-center px-8 border-b border-warm/10 bg-white">
          {logoSrc ? (
-            <img src={logoSrc} alt="Brand Logo" className="h-16 w-auto object-contain" />
+            <img src={logoSrc} alt="Brand Logo" className="max-h-[100px] w-auto object-contain" />
          ) : (
             <div className="flex flex-col items-center text-dark group cursor-default">
                 <BookOpen className="h-10 w-10 mb-4 opacity-90" strokeWidth={1} />
