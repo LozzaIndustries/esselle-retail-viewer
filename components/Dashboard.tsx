@@ -1,7 +1,7 @@
 import React from 'react';
 import { Booklet } from '../types';
 import { motion } from 'framer-motion';
-import { Eye, Clock, FileText, RotateCw, Edit3, Calendar, EyeOff } from 'lucide-react';
+import { Eye, Clock, FileText, RotateCw, Edit3, Calendar, EyeOff, User as UserIcon } from 'lucide-react';
 
 interface DashboardProps {
   booklets: Booklet[];
@@ -99,9 +99,17 @@ const Dashboard: React.FC<DashboardProps> = ({ booklets, onView, onEdit }) => {
 
                   {/* Meta Data */}
                   <div className="space-y-2 px-1 pointer-events-none">
-                    <div className="flex items-center gap-2 text-[10px] font-bold text-warm uppercase tracking-[0.2em]">
-                      <Clock size={10} />
-                      {new Date(item.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
+                    <div className="flex items-center justify-between text-[10px] font-bold text-warm uppercase tracking-[0.2em]">
+                        <div className="flex items-center gap-1">
+                            <Clock size={10} />
+                            {new Date(item.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
+                        </div>
+                        {item.ownerName && (
+                            <div className="flex items-center gap-1 text-cool/50" title={`Published by ${item.ownerName}`}>
+                                <UserIcon size={10} />
+                                <span className="truncate max-w-[80px]">{item.ownerName}</span>
+                            </div>
+                        )}
                     </div>
                     <h3 className="font-serif text-xl text-dark leading-snug truncate">
                       {item.title}

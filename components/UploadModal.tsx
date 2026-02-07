@@ -3,7 +3,7 @@ import { X, UploadCloud, FileText, CheckCircle, AlertCircle, Image as ImageIcon,
 import { motion, AnimatePresence } from 'framer-motion';
 import { uploadPDF, updateBooklet, isAppInDemoMode } from '../services/firebase';
 import { pdfjs } from 'react-pdf';
-import { Booklet } from '../types';
+import { Booklet, User } from '../types';
 
 // Ensure worker is configured for cover generation
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
@@ -13,9 +13,10 @@ interface UploadModalProps {
   onClose: () => void;
   onUploadComplete: (booklet: Booklet) => void;
   initialBooklet?: Booklet | null;
+  currentUser?: User | null;
 }
 
-const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComplete, initialBooklet }) => {
+const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComplete, initialBooklet, currentUser }) => {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -118,21 +119,31 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
         title, 
         description,
         status: finalStatus,
-        scheduledAt: scheduledTimestamp
+        scheduledAt: scheduledTimestamp,
+        ownerId: currentUser?.uid || 'anon',
+        ownerName: currentUser?.displayName || 'Anonymous'
       };
 
       if (isEditMode && initialBooklet) {
+        // We generally don't overwrite owner on edit unless specified, but let's keep original owner
+        // If needed we could update ownerName if the user changes their name, but usually better to keep original
+        const updateMeta = {
+            ...metadata,
+            ownerId: initialBooklet.ownerId || metadata.ownerId, // Preserve original owner
+            ownerName: initialBooklet.ownerName || metadata.ownerName
+        };
+
         resultBooklet = await updateBooklet(
             initialBooklet.id,
             file,
-            metadata,
+            updateMeta,
             (p) => setProgress(p),
             coverPreview
         );
       } else {
         resultBooklet = await uploadPDF(
             file!, 
-            { ...metadata, ownerId: 'demo-user' }, 
+            metadata, 
             (p) => setProgress(p),
             coverPreview 
         );

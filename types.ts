@@ -21,6 +21,7 @@ export interface Booklet {
   coverUrl?: string; // Optional generated cover image
   createdAt: number;
   ownerId?: string; // ID of the user who uploaded it
+  ownerName?: string; // Display Name of the user who uploaded it
   stats?: BookletStats;
   status?: 'published' | 'draft' | 'scheduled';
   scheduledAt?: number | null;

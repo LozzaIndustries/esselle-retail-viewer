@@ -1,79 +1,61 @@
+// @ts-ignore
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { getFirestore, collection, addDoc, getDocs, doc, getDoc, setDoc, updateDoc, increment, orderBy, query, serverTimestamp, where, deleteField } from 'firebase/firestore';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, User as FirebaseUser, updateProfile } from 'firebase/auth';
+import { getFirestore, collection, addDoc, getDocs, doc, getDoc, setDoc, updateDoc, increment, orderBy, query, serverTimestamp, where } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, uploadString } from 'firebase/storage';
 import { Booklet, AppSettings } from '../types';
 
-// --- CONFIGURATION HELPER ---
-const getEnv = (key: string): string | undefined => {
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
-      // @ts-ignore
-      return import.meta.env[key];
-    }
-  } catch (e) {
-    // Squelch errors
-  }
-  return undefined;
-};
-
 // --- CONFIGURATION ---
+// We are HARDCODING the keys to ensure it connects to the live project.
 const firebaseConfig = {
-  apiKey: getEnv('VITE_FIREBASE_API_KEY'),
-  authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN'),
-  projectId: getEnv('VITE_FIREBASE_PROJECT_ID'),
-  storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET'),
-  messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID'),
-  appId: getEnv('VITE_FIREBASE_APP_ID')
+  apiKey: "AIzaSyD_3FRdlXO9dQEGNXXIRIllqKoOO-2tT8Q",
+  authDomain: "esselle-publisher-b3bbf.firebaseapp.com",
+  projectId: "esselle-publisher-b3bbf",
+  storageBucket: "esselle-publisher-b3bbf.firebasestorage.app",
+  messagingSenderId: "958825934813",
+  appId: "1:958825934813:web:81d9fe905c96284ab91034"
 };
 
-// --- MOCK DATA ---
-const STABLE_PDF = 'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi-09.pdf';
+// --- CONSTANTS ---
+const LS_USER_KEY = 'esselle_demo_user';
+const LS_DATA_KEY = 'esselle_demo_booklets';
+const LS_SETTINGS_KEY = 'esselle_demo_settings';
+
+// Fallback PDF for demo mode (Mozilla's PDF.js sample)
+const DEMO_PDF_URL = 'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi-09.pdf';
 const DEFAULT_COVER = 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=800';
 
-const MOCK_BOOKLETS: Booklet[] = [
-  {
-    id: 'demo-1',
-    title: 'Esselle Spring Collection 2025',
-    description: 'A curated lookbook of upcoming seasonal trends and retail floor sets.',
-    url: STABLE_PDF,
-    coverUrl: DEFAULT_COVER,
-    createdAt: Date.now() - 86400000 * 2,
-    ownerId: 'admin-user',
-    status: 'published',
-    stats: { views: 1240, uniqueReaders: 850, avgTimeSeconds: 185, shares: 45 }
-  }
-];
-
-// --- INITIALIZATION ---
+// --- INITIALIZATION STATE ---
 let app;
 let auth: any = null;
 let db: any = null;
 let storage: any = null;
-let isDemoMode = true; 
+let isDemo = false;
 
 try {
-  const hasKeys = firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.apiKey.length > 0;
-  
-  if (hasKeys) {
-      app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-      auth = getAuth(app);
-      db = getFirestore(app);
-      storage = getStorage(app);
-      isDemoMode = false;
-      console.log("🔥 Firebase initialized in PRODUCTION Mode.");
-  } else {
-      console.warn("⚠️ Firebase Config Missing - App running in DEMO MODE.");
-  }
+    // 1. Initialize App
+    // We check getApps() to ensure we don't double-initialize if HMR runs this module twice.
+    // @ts-ignore
+    const apps = typeof getApps === 'function' ? getApps() : [];
+    
+    // @ts-ignore
+    app = !apps.length ? initializeApp(firebaseConfig) : (typeof getApp === 'function' ? getApp() : apps[0]);
+    
+    // 2. Initialize Services
+    auth = getAuth(app);
+    db = getFirestore(app);
+    storage = getStorage(app);
+    
+    console.log("🔥 Firebase initialized successfully.");
 } catch (e) {
-  console.error("Firebase initialization critical error:", e);
+    console.warn("⚠️ Firebase initialization failed. Switching to LOCAL DEMO MODE.", e);
+    isDemo = true;
 }
 
-export const isAppInDemoMode = () => isDemoMode;
+// Global accessor for UI to know if we are in demo mode
+export const isAppInDemoMode = () => isDemo;
 
 // --- UTILS ---
-// Removes undefined keys. Keeps null (important for clearing fields).
 const cleanData = (data: any) => {
     const cleaned: any = {};
     Object.keys(data).forEach(key => {
@@ -84,95 +66,119 @@ const cleanData = (data: any) => {
     return cleaned;
 };
 
+// --- MOCK LOCALSTORAGE HELPERS ---
+const getLocalBooklets = (): Booklet[] => {
+    try {
+        const str = localStorage.getItem(LS_DATA_KEY);
+        return str ? JSON.parse(str) : [];
+    } catch { return []; }
+};
+
+const setLocalBooklets = (data: Booklet[]) => {
+    localStorage.setItem(LS_DATA_KEY, JSON.stringify(data));
+};
+
 // ----- AUTH SERVICE -----
 
 export const subscribeToAuth = (callback: (user: FirebaseUser | null) => void) => {
-    if (isDemoMode || !auth) {
-        const demoUser = localStorage.getItem('demo_authed');
-        const tm = setTimeout(() => {
-            if (demoUser === 'true') {
-                callback({ uid: 'admin-user', email: 'admin@esselleretail.com', displayName: 'Admin Publisher' } as any);
+    if (isDemo || !auth) {
+        // Fallback: Check localStorage for a fake user
+        const checkLocal = () => {
+            const stored = localStorage.getItem(LS_USER_KEY);
+            if (stored) {
+                callback(JSON.parse(stored));
             } else {
                 callback(null);
             }
-        }, 50);
-        return () => clearTimeout(tm);
+        };
+        
+        // Check immediately
+        checkLocal();
+        
+        // Listen for login/logout events within the app
+        window.addEventListener('esselle-auth-change', checkLocal);
+        
+        return () => {
+            window.removeEventListener('esselle-auth-change', checkLocal);
+        };
     }
+    
+    // Real Firebase Auth
     return onAuthStateChanged(auth, callback);
 };
 
 export const loginWithEmail = async (emailInput: string, passwordInput: string) => {
-    const email = emailInput.trim().toLowerCase();
-    const password = passwordInput.trim();
-
-    if (email === 'admin' && password === 'admin') {
-        localStorage.setItem('demo_authed', 'true');
-        return { uid: 'admin-user', email: 'admin@esselleretail.com', displayName: 'Admin Publisher' };
+    if (isDemo || !auth) {
+        // Mock Login
+        if (emailInput === 'admin' && passwordInput === 'admin') {
+            const fakeUser = { 
+                uid: 'demo-admin-123', 
+                email: 'admin@demo.local', 
+                displayName: 'Demo Admin' 
+            };
+            localStorage.setItem(LS_USER_KEY, JSON.stringify(fakeUser));
+            window.dispatchEvent(new Event('esselle-auth-change'));
+            return fakeUser;
+        }
+        throw new Error("Demo Mode: Use 'admin' / 'admin'");
     }
-
-    if (isDemoMode || !auth) {
-        throw new Error("Invalid credentials. In Demo Mode, use admin / admin.");
+    
+    // Real Login
+    // Admin backdoor for convenience in hybrid mode
+    if (emailInput === 'admin' && passwordInput === 'admin') {
+         return { uid: 'admin-user', email: 'admin@esselleretail.com', displayName: 'Admin Publisher' };
     }
-
-    return signInWithEmailAndPassword(auth, email, password);
+    return signInWithEmailAndPassword(auth, emailInput, passwordInput);
 };
 
-export const registerWithEmail = async (emailInput: string, passwordInput: string) => {
-    if (isDemoMode || !auth) {
-        const email = emailInput.trim().toLowerCase();
-        localStorage.setItem('demo_authed', 'true');
-        return { uid: `user_${Date.now()}`, email, displayName: email.split('@')[0] };
+export const registerWithEmail = async (emailInput: string, passwordInput: string, nameInput: string) => {
+    if (isDemo || !auth) {
+        const fakeUser = { 
+            uid: `demo-user-${Date.now()}`, 
+            email: emailInput, 
+            displayName: nameInput 
+        };
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(fakeUser));
+        window.dispatchEvent(new Event('esselle-auth-change'));
+        return fakeUser;
     }
     const cred = await createUserWithEmailAndPassword(auth, emailInput, passwordInput);
-    return cred.user;
+    await updateProfile(cred.user, { displayName: nameInput });
+    return { ...cred.user, displayName: nameInput };
 };
 
 export const logout = async () => {
-    localStorage.removeItem('demo_authed');
-    if (auth) await signOut(auth);
+    if (isDemo || !auth) {
+        localStorage.removeItem(LS_USER_KEY);
+        window.dispatchEvent(new Event('esselle-auth-change'));
+        window.location.reload();
+        return;
+    }
+    await signOut(auth);
     window.location.reload();
-};
-
-const isAuthenticated = () => {
-    if (isDemoMode) return localStorage.getItem('demo_authed') === 'true';
-    return !!auth?.currentUser;
 };
 
 // ----- DATA SERVICE -----
 
 export const fetchBooklets = async (ownerId?: string, publicOnly: boolean = false): Promise<Booklet[]> => {
-    // 1. Fallback / Local Storage
-    const getLocalData = () => {
-        try {
-            const local = localStorage.getItem('lumiere_booklets');
-            let saved = local ? JSON.parse(local) : [];
-            if (saved.length === 0 && !localStorage.getItem('lumiere_booklets_cleared')) {
-                saved = MOCK_BOOKLETS;
-            }
-            if (publicOnly) {
-                const now = Date.now();
-                saved = saved.filter((b: Booklet) => {
-                    if (b.status === 'draft') return false;
-                    if (b.status === 'scheduled' && b.scheduledAt && b.scheduledAt > now) return false;
-                    return true;
-                });
-            }
-            return saved.sort((a: Booklet, b: Booklet) => b.createdAt - a.createdAt);
-        } catch (e) {
-            return MOCK_BOOKLETS;
+    if (isDemo || !db) {
+        // Return local data
+        let data = getLocalBooklets();
+        if (publicOnly) {
+            const now = Date.now();
+            data = data.filter(b => {
+                 if (b.status === 'draft') return false;
+                 if (b.status === 'scheduled' && b.scheduledAt && b.scheduledAt > now) return false;
+                 return true;
+            });
         }
-    };
+        // Sort desc
+        return data.sort((a, b) => b.createdAt - a.createdAt);
+    }
 
-    if (isDemoMode || !db) return getLocalData();
-
-    // 2. Production Firestore
     try {
-        let q;
         const bookletsRef = collection(db, "booklets");
-
-        // NOTE: We don't filter strictly by status in the query to avoid needing a composite index immediately.
-        // We filter in memory for perfect accuracy.
-        q = query(bookletsRef, orderBy("createdAt", "desc"));
+        const q = query(bookletsRef, orderBy("createdAt", "desc"));
             
         const snapshot = await getDocs(q);
         let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booklet));
@@ -180,75 +186,47 @@ export const fetchBooklets = async (ownerId?: string, publicOnly: boolean = fals
         if (publicOnly) {
             const now = Date.now();
             data = data.filter(b => {
-                 // Hide drafts from public
                  if (b.status === 'draft') return false;
-                 // Hide scheduled items in the future
                  if (b.status === 'scheduled' && b.scheduledAt && b.scheduledAt > now) return false;
                  return true;
             });
         } else if (ownerId) {
-            // Filter for admin view if ownerId provided
             data = data.filter(b => b.ownerId === ownerId);
         }
 
         return data;
     } catch (e) {
-        console.error("Fetch error, falling back to local:", e);
-        return getLocalData();
+        console.error("Fetch error, fallback to empty:", e);
+        return [];
     }
 };
 
 export const getBookletById = async (id: string): Promise<Booklet | null> => {
-    let booklet: Booklet | null = null;
-
-    if (!isDemoMode && db) {
-        try {
-            const docSnap = await getDoc(doc(db, "booklets", id));
-            if (docSnap.exists()) {
-                booklet = { id: docSnap.id, ...docSnap.data() } as Booklet;
-            }
-        } catch (e) {
-            console.error("Get booklet error:", e);
+    if (isDemo || !db) {
+        const data = getLocalBooklets();
+        const found = data.find(b => b.id === id);
+        if (found) {
+             if (found.status === 'draft') return null; // Simulate permission check?
+             return found;
         }
+        return null;
     }
 
-    if (!booklet) {
-        const localData = localStorage.getItem('lumiere_booklets');
-        const allLocal = localData ? JSON.parse(localData) : MOCK_BOOKLETS;
-        booklet = allLocal.find((b: Booklet) => b.id === id) || null;
+    try {
+        const docSnap = await getDoc(doc(db, "booklets", id));
+        if (docSnap.exists()) {
+             const booklet = { id: docSnap.id, ...docSnap.data() } as Booklet;
+             if (booklet.status === 'draft') return null;
+             if (booklet.status === 'scheduled' && booklet.scheduledAt) {
+                if (Date.now() < booklet.scheduledAt) return null;
+             }
+             return booklet;
+        }
+        return null;
+    } catch (e) {
+        console.error("Get booklet error:", e);
+        return null;
     }
-
-    if (!booklet) return null;
-
-    // Visibility Logic
-    if (isAuthenticated()) return booklet;
-
-    if (booklet.status === 'draft') return null;
-    if (booklet.status === 'scheduled' && booklet.scheduledAt) {
-        if (Date.now() < booklet.scheduledAt) return null;
-    }
-
-    return booklet;
-};
-
-// Internal helper for demo/mock uploads
-const mockUploadProcess = (file: File, id: string, onProgress: (p: number) => void): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-            let p = 0;
-            const interval = setInterval(() => {
-                p += 20;
-                onProgress(p);
-                if (p >= 100) {
-                    clearInterval(interval);
-                    resolve(reader.result as string);
-                }
-            }, 100);
-        };
-        reader.onerror = () => reject(new Error("File read failed"));
-        reader.readAsDataURL(file);
-    });
 };
 
 export const uploadPDF = async (
@@ -257,40 +235,51 @@ export const uploadPDF = async (
         title: string; 
         description: string; 
         ownerId: string;
+        ownerName?: string;
         status: 'published' | 'draft' | 'scheduled';
         scheduledAt?: number | null;
     },
     onProgress: (progress: number) => void,
     coverDataUrl?: string | null
   ): Promise<Booklet> => {
-    const fileId = `up_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // DEMO MODE
-    if (isDemoMode || !storage) {
-        const pdfDataUrl = await mockUploadProcess(file, fileId, onProgress);
-        let finalCoverUrl = DEFAULT_COVER;
-        if (coverDataUrl) finalCoverUrl = coverDataUrl;
-
-        const newBooklet: Booklet = {
-            id: fileId,
-            ...metadata,
-            url: pdfDataUrl,
-            createdAt: Date.now(),
-            coverUrl: finalCoverUrl,
-            stats: { views: 0, uniqueReaders: 0, avgTimeSeconds: 0, shares: 0 }
-        };
-        
-        try {
-            const local = localStorage.getItem('lumiere_booklets');
-            const booklets = local ? JSON.parse(local) : [];
-            localStorage.setItem('lumiere_booklets', JSON.stringify([newBooklet, ...booklets]));
-        } catch (e) { 
-            throw new Error("Local Demo Storage Full.");
-        }
-        return newBooklet;
+    // --- DEMO MODE UPLOAD ---
+    if (isDemo || !storage || !db) {
+        return new Promise((resolve) => {
+            // Simulate upload progress
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 10;
+                onProgress(progress);
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    
+                    const newBooklet: Booklet = {
+                        id: `local_${Date.now()}`,
+                        title: metadata.title,
+                        description: metadata.description,
+                        status: metadata.status,
+                        scheduledAt: metadata.scheduledAt,
+                        createdAt: Date.now(),
+                        ownerId: metadata.ownerId,
+                        ownerName: metadata.ownerName,
+                        // Use the stable PDF so it works across refreshes in demo mode
+                        url: DEMO_PDF_URL, 
+                        coverUrl: coverDataUrl || DEFAULT_COVER,
+                        stats: { views: 0, uniqueReaders: 0, avgTimeSeconds: 0, shares: 0 }
+                    };
+                    
+                    const current = getLocalBooklets();
+                    setLocalBooklets([newBooklet, ...current]);
+                    
+                    resolve(newBooklet);
+                }
+            }, 200);
+        });
     }
 
-    // PRODUCTION
+    // --- REAL UPLOAD ---
+    const fileId = `up_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const storageRef = ref(storage, `booklets/${fileId}`);
     const uploadTask = uploadBytesResumable(storageRef, file);
 
@@ -301,6 +290,7 @@ export const uploadPDF = async (
             async () => {
                 const url = await getDownloadURL(uploadTask.snapshot.ref);
                 let finalCoverUrl = DEFAULT_COVER;
+                
                 if (coverDataUrl) {
                     try {
                         const coverRef = ref(storage, `covers/${fileId}.jpg`);
@@ -309,7 +299,6 @@ export const uploadPDF = async (
                     } catch (e) {}
                 }
 
-                // Force scheduledAt to null if not scheduled
                 const finalMetadata = { ...metadata };
                 if (finalMetadata.status !== 'scheduled') {
                     finalMetadata.scheduledAt = null;
@@ -347,40 +336,36 @@ export const updateBooklet = async (
     onProgress: (progress: number) => void,
     coverDataUrl?: string | null
 ): Promise<Booklet> => {
-    // Demo Mode
-    if (isDemoMode || !db) {
-        const local = localStorage.getItem('lumiere_booklets');
-        if (!local) throw new Error("No local data");
-        const booklets: Booklet[] = JSON.parse(local);
-        const idx = booklets.findIndex(b => b.id === bookletId);
-        if (idx === -1) throw new Error("Booklet not found locally");
-
-        const updated = { ...booklets[idx], ...metadata };
+    
+    // --- DEMO MODE UPDATE ---
+    if (isDemo || !db) {
+        const booklets = getLocalBooklets();
+        const index = booklets.findIndex(b => b.id === bookletId);
+        if (index === -1) throw new Error("Booklet not found locally");
         
-        // Logic to clear schedule in demo mode
-        if (updated.status !== 'scheduled') updated.scheduledAt = null;
-
+        const updated = { ...booklets[index], ...cleanData(metadata) };
+        
         if (file) {
-            const pdfData = await mockUploadProcess(file, bookletId, onProgress);
-            updated.url = pdfData;
-        } else {
+            // Simulate file swap
+            updated.url = DEMO_PDF_URL;
             onProgress(100);
         }
-        if (coverDataUrl) updated.coverUrl = coverDataUrl;
+        if (coverDataUrl) {
+            updated.coverUrl = coverDataUrl;
+        }
         
-        booklets[idx] = updated;
-        localStorage.setItem('lumiere_booklets', JSON.stringify(booklets));
+        booklets[index] = updated;
+        setLocalBooklets(booklets);
         return updated;
     }
 
-    // PRODUCTION
+    // --- REAL UPDATE ---
+    if (!db) throw new Error("Database unavailable");
     const docRef = doc(db, 'booklets', bookletId);
     
     // 1. Prepare Updates
     const updates: any = { ...metadata };
 
-    // CRITICAL: If we are switching OUT of scheduled mode, we MUST explicitly set scheduledAt to null.
-    // If we just leave it undefined, cleanData removes it, and Firestore keeps the OLD date.
     if (updates.status && updates.status !== 'scheduled') {
         updates.scheduledAt = null; 
     }
@@ -389,6 +374,7 @@ export const updateBooklet = async (
 
     // 2. Handle File Upload
     if (file) {
+        if (!storage) throw new Error("Storage unavailable");
         const fileRef = `booklets/${bookletId}_v${Date.now()}`;
         const storageRef = ref(storage, fileRef);
         const uploadTask = uploadBytesResumable(storageRef, file);
@@ -407,7 +393,7 @@ export const updateBooklet = async (
         onProgress(100);
     }
 
-    if (coverDataUrl) {
+    if (coverDataUrl && storage) {
         try {
             const coverRef = ref(storage, `covers/${bookletId}_v${Date.now()}.jpg`);
             await uploadString(coverRef, coverDataUrl, 'data_url');
@@ -422,19 +408,17 @@ export const updateBooklet = async (
 };
 
 export const saveBrandingSettings = async (settings: AppSettings) => {
-    if (isDemoMode || !db) {
-        localStorage.setItem('lumiere_settings', JSON.stringify(settings));
+    if (isDemo || !db) {
+        localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(settings));
         return;
     }
     await setDoc(doc(db, 'config', 'global_settings'), cleanData(settings), { merge: true });
 };
 
 export const getBrandingSettings = async (): Promise<AppSettings> => {
-    if (isDemoMode || !db) {
-        try {
-            const s = localStorage.getItem('lumiere_settings');
-            return s ? JSON.parse(s) : {};
-        } catch (e) { return {}; }
+    if (isDemo || !db) {
+        const str = localStorage.getItem(LS_SETTINGS_KEY);
+        return str ? JSON.parse(str) : {};
     }
     try {
         const snap = await getDoc(doc(db, 'config', 'global_settings'));
@@ -445,8 +429,9 @@ export const getBrandingSettings = async (): Promise<AppSettings> => {
 };
 
 export const uploadLogo = async (file: File): Promise<string> => {
-    if (isDemoMode || !storage) {
-        return new Promise(resolve => {
+    if (isDemo || !storage) {
+        // Return a data URL for local storage
+        return new Promise((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result as string);
             reader.readAsDataURL(file);
@@ -458,9 +443,17 @@ export const uploadLogo = async (file: File): Promise<string> => {
 };
 
 export const recordView = async (id: string) => { 
-    if (!isDemoMode && db) {
-        try {
-            await updateDoc(doc(db, 'booklets', id), { 'stats.views': increment(1) });
-        } catch(e) {}
+    if (isDemo || !db) {
+        const booklets = getLocalBooklets();
+        const index = booklets.findIndex(b => b.id === id);
+        if (index !== -1) {
+            const b = booklets[index];
+            if (!b.stats) b.stats = { views: 0, uniqueReaders: 0, avgTimeSeconds: 0, shares: 0 };
+            b.stats.views++;
+            booklets[index] = b;
+            setLocalBooklets(booklets);
+        }
+        return;
     }
+    updateDoc(doc(db, 'booklets', id), { 'stats.views': increment(1) }).catch(() => {});
 };

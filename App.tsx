@@ -265,6 +265,7 @@ const App: React.FC = () => {
             onClose={() => setIsUploadOpen(false)} 
             onUploadComplete={handleUploadComplete}
             initialBooklet={editingBooklet}
+            currentUser={user}
           />
       )}
     </Router>

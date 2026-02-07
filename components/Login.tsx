@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import { BookOpen, ArrowRight, AlertCircle, ShieldCheck, UserPlus, LogIn } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { BookOpen, ArrowRight, AlertCircle } from 'lucide-react';
 import { loginWithEmail, registerWithEmail } from '../services/firebase';
 
 interface LoginProps {
@@ -11,20 +11,31 @@ interface LoginProps {
 
 const Login: React.FC<LoginProps> = ({ onLoginSuccess, logoSrc, companyName }) => {
   const [isRegistering, setIsRegistering] = useState(false);
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!email || !password) return;
+    if (isRegistering && !name) {
+        setError("Please enter your name.");
+        return;
+    }
+
+    if (isRegistering && password !== confirmPassword) {
+        setError("Passwords do not match.");
+        return;
+    }
 
     setLoading(true);
     setError(null);
     try {
       if (isRegistering) {
-          const result = await registerWithEmail(email, password);
+          const result = await registerWithEmail(email, password, name);
           onLoginSuccess(result);
       } else {
           const result = await loginWithEmail(email, password);
@@ -38,17 +49,12 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, logoSrc, companyName }) =
     }
   };
 
-  const handleQuickDemo = async () => {
-    setEmail('admin');
-    setPassword('admin');
-    setLoading(true);
-    try {
-        const result = await loginWithEmail('admin', 'admin');
-        onLoginSuccess(result);
-    } catch (err: any) {
-        setError(err.message);
-        setLoading(false);
-    }
+  const toggleMode = () => {
+      setIsRegistering(!isRegistering);
+      setError(null);
+      setConfirmPassword('');
+      setPassword('');
+      setName('');
   };
 
   return (
@@ -72,6 +78,27 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, logoSrc, companyName }) =
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
+          <AnimatePresence>
+            {isRegistering && (
+                <motion.div
+                    initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                    animate={{ opacity: 1, height: 'auto', marginBottom: 20 }}
+                    exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                    className="overflow-hidden"
+                >
+                    <label className="block text-xs font-semibold text-cool uppercase tracking-wider mb-2">Full Name</label>
+                    <input 
+                    type="text" 
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:border-dark focus:ring-1 focus:ring-dark outline-none transition-all font-sans"
+                    placeholder="John Doe"
+                    required={isRegistering}
+                    />
+                </motion.div>
+            )}
+          </AnimatePresence>
+
           <div>
             <label className="block text-xs font-semibold text-cool uppercase tracking-wider mb-2">Username / Email</label>
             <input 
@@ -79,9 +106,9 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, logoSrc, companyName }) =
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:border-dark focus:ring-1 focus:ring-dark outline-none transition-all font-sans"
-              placeholder={isRegistering ? "you@example.com" : "admin"}
+              placeholder={isRegistering ? "you@example.com" : "email@address.com"}
               required
-              autoFocus
+              autoFocus={!isRegistering}
             />
           </div>
           <div>
@@ -95,6 +122,27 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, logoSrc, companyName }) =
               required
             />
           </div>
+
+          <AnimatePresence>
+            {isRegistering && (
+                <motion.div
+                    initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                    animate={{ opacity: 1, height: 'auto', marginTop: 20 }}
+                    exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                    className="overflow-hidden"
+                >
+                    <label className="block text-xs font-semibold text-cool uppercase tracking-wider mb-2">Confirm Password</label>
+                    <input 
+                    type="password" 
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:border-dark focus:ring-1 focus:ring-dark outline-none transition-all font-sans"
+                    placeholder="••••••••"
+                    required={isRegistering}
+                    />
+                </motion.div>
+            )}
+          </AnimatePresence>
 
           {error && (
             <motion.div 
@@ -119,24 +167,11 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, logoSrc, companyName }) =
 
         <div className="mt-6 flex flex-col gap-4 text-center">
              <button 
-                onClick={() => { setIsRegistering(!isRegistering); setError(null); }}
+                onClick={toggleMode}
                 className="text-sm text-cool hover:text-dark underline decoration-gray-300 underline-offset-4"
              >
                 {isRegistering ? "Already have an account? Sign In" : "Don't have an account? Sign Up"}
              </button>
-
-            {!isRegistering && (
-                <div className="pt-6 border-t border-gray-100 mt-2">
-                    <button 
-                        onClick={handleQuickDemo}
-                        className="flex items-center justify-center gap-2 w-full py-3 border border-dark/20 rounded-lg text-sm text-dark hover:bg-dark hover:text-white transition-all font-medium"
-                    >
-                        <ShieldCheck size={14} />
-                        <span>Use Admin Access</span>
-                    </button>
-                    <p className="text-[10px] text-cool uppercase tracking-widest opacity-60 mt-3">Credentials: admin / admin</p>
-                </div>
-            )}
         </div>
       </motion.div>
       
