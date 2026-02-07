@@ -12,7 +12,7 @@ import QRCodes from './components/QRCodes';
 import PublicLibrary from './components/PublicLibrary';
 import { fetchBooklets, getBookletById, subscribeToAuth, logout, getBrandingSettings, isAppInDemoMode } from './services/firebase';
 import { Booklet, User, AppSettings } from './types';
-import { AlertTriangle, Database } from 'lucide-react';
+import { AlertTriangle, Database, LogIn } from 'lucide-react';
 
 // Robust URL Generator
 const getShareUrl = (id: string) => {
@@ -49,9 +49,6 @@ const ViewerRoute = ({ booklets, isPublic }: { booklets: Booklet[], isPublic: bo
       }
 
       // 2. Network Fetch: If not in props, fetch directly
-      // Only set loading if we haven't already found it (prevents flickering)
-      if (isMounted && !booklet) setStatus('loading');
-
       try {
         const fetched = await getBookletById(id);
         if (isMounted) {
@@ -71,7 +68,7 @@ const ViewerRoute = ({ booklets, isPublic }: { booklets: Booklet[], isPublic: bo
     loadBooklet();
 
     return () => { isMounted = false; };
-  }, [id, booklets]); // Re-run if ID changes or Booklets list updates (e.g. initial load finishes)
+  }, [id, booklets]);
 
   if (status === 'loading') {
     return (
@@ -89,12 +86,20 @@ const ViewerRoute = ({ booklets, isPublic }: { booklets: Booklet[], isPublic: bo
         <p className="text-white/40 text-sm max-w-md mb-8">
           The booklet you are looking for has been removed, is set to draft, or is currently unavailable.
         </p>
-        <button 
-          onClick={() => navigate('/')}
-          className="px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full text-xs font-bold uppercase tracking-widest transition-colors"
-        >
-          Return Home
-        </button>
+        <div className="flex gap-4">
+            <button 
+            onClick={() => navigate('/')}
+            className="px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full text-xs font-bold uppercase tracking-widest transition-colors"
+            >
+            Return Home
+            </button>
+            <button 
+            onClick={() => navigate('/login')}
+            className="px-6 py-2 border border-white/20 hover:bg-white/5 rounded-full text-xs font-bold uppercase tracking-widest transition-colors flex items-center gap-2"
+            >
+            <LogIn size={14} /> Admin Login
+            </button>
+        </div>
       </div>
     );
   }
@@ -134,16 +139,12 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   
-  // Two separate booklet lists: one for admin (all), one for public (published)
   const [booklets, setBooklets] = useState<Booklet[]>([]);
-  
   const [appSettings, setAppSettings] = useState<AppSettings>({});
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   
-  // State for Editing
   const [editingBooklet, setEditingBooklet] = useState<Booklet | null>(null);
 
-  // Auth Listener
   useEffect(() => {
     const unsub = subscribeToAuth((u) => {
       setUser(u ? { uid: u.uid, email: u.email, displayName: u.displayName } : null);
@@ -152,15 +153,10 @@ const App: React.FC = () => {
     return unsub;
   }, []);
 
-  // Data Loader
   useEffect(() => {
-    // Always load branding settings
     getBrandingSettings().then(setAppSettings).catch(console.error);
     
-    // Fetch data based on auth status
     const loadData = async () => {
-        // If logged in, fetch ALL booklets (including drafts)
-        // If public, fetch ONLY published booklets
         const isPublic = !user;
         const data = await fetchBooklets(undefined, isPublic);
         setBooklets(data);
@@ -177,7 +173,7 @@ const App: React.FC = () => {
   };
 
   const handleUploadClick = () => {
-    setEditingBooklet(null); // Clear editing state for new upload
+    setEditingBooklet(null); 
     setIsUploadOpen(true);
   };
 
@@ -188,14 +184,12 @@ const App: React.FC = () => {
 
   const handleUploadComplete = (updatedBooklet: Booklet) => {
     setBooklets(prev => {
-        // If updating existing
         const exists = prev.findIndex(b => b.id === updatedBooklet.id);
         if (exists >= 0) {
             const newList = [...prev];
             newList[exists] = updatedBooklet;
             return newList;
         }
-        // If new
         return [updatedBooklet, ...prev];
     });
     setIsUploadOpen(false);
@@ -214,18 +208,14 @@ const App: React.FC = () => {
     <Router>
       <DemoBanner />
       <Routes>
-        {/* 1. PUBLIC VIEWER ROUTE - Accessible by ANYONE with link, NO LOGIN required */}
         <Route path="/view/:id" element={ 
            <ViewerRoute booklets={booklets} isPublic={!user} /> 
         } />
 
-        {/* 2. LOGIN ROUTE */}
         <Route path="/login" element={!user ? <Login onLoginSuccess={setUser} logoSrc={appSettings.logoUrl} companyName={appSettings.companyName} /> : <Navigate to="/" />} />
         
-        {/* 3. ROOT PATH: Split based on Auth */}
         <Route path="/" element={
           user ? (
-            // Authenticated: Show Admin Dashboard
             <Layout user={user} onUploadClick={handleUploadClick} onLogout={handleLogout} logoSrc={appSettings.logoUrl}>
               <Dashboard 
                 booklets={booklets} 
@@ -234,7 +224,6 @@ const App: React.FC = () => {
               />
             </Layout>
           ) : (
-            // Unauthenticated: Show Public Library
             <PublicLibrary 
                booklets={booklets} 
                appSettings={appSettings}
@@ -243,7 +232,6 @@ const App: React.FC = () => {
           )
         } />
 
-        {/* 4. PROTECTED ROUTES */}
         <Route path="/analytics" element={
           user ? (
             <Layout user={user} onUploadClick={handleUploadClick} onLogout={handleLogout} logoSrc={appSettings.logoUrl}>
@@ -268,11 +256,9 @@ const App: React.FC = () => {
           ) : <Navigate to="/login" />
         } />
 
-        {/* Catch-all */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
-      {/* Global Upload Modal (Only accessible if logged in) */}
       {user && (
           <UploadModal 
             isOpen={isUploadOpen} 

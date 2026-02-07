@@ -12,7 +12,7 @@ interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUploadComplete: (booklet: Booklet) => void;
-  initialBooklet?: Booklet | null; // If present, we are in EDIT/REPUBLISH mode
+  initialBooklet?: Booklet | null;
 }
 
 const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComplete, initialBooklet }) => {
@@ -30,7 +30,6 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
   const [generatingCover, setGeneratingCover] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const isDemo = isAppInDemoMode();
   const isEditMode = !!initialBooklet;
 
   // Pre-fill data when opening in edit mode
@@ -43,7 +42,6 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
         
         if (initialBooklet.scheduledAt) {
             const date = new Date(initialBooklet.scheduledAt);
-            // Format to YYYY-MM-DDTHH:MM for input type="datetime-local"
             const isoString = date.toISOString().slice(0, 16);
             setScheduleDate(isoString);
             setStatusMode('scheduled');
@@ -63,9 +61,8 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
         const url = URL.createObjectURL(pdfFile);
         const loadingTask = pdfjs.getDocument(url);
         const pdf = await loadingTask.promise;
-        const page = await pdf.getPage(1); // Get first page
+        const page = await pdf.getPage(1);
         
-        // Render at reasonable quality
         const viewport = page.getViewport({ scale: 1.5 });
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
@@ -73,8 +70,6 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
         canvas.width = viewport.width;
 
         if (context) {
-            // Fix: Cast to any to avoid type mismatch on 'RenderParameters' which varies between versions
-            // This prevents build errors in strict TypeScript environments
             await page.render({ canvasContext: context, viewport } as any).promise;
             const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
             setCoverPreview(dataUrl);
@@ -92,13 +87,9 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
       const selectedFile = e.target.files[0];
       if (selectedFile.type === 'application/pdf') {
         setFile(selectedFile);
-        
-        // Only auto-fill title if empty and not editing
         if (!title.trim() && !isEditMode) {
             setTitle(selectedFile.name.replace('.pdf', ''));
         }
-
-        // Generate cover immediately
         generateCover(selectedFile);
       } else {
         alert("Please select a valid PDF file.");
@@ -113,7 +104,11 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
     setStatus('uploading');
     setProgress(0);
 
-    const scheduledTimestamp = statusMode === 'scheduled' && scheduleDate ? new Date(scheduleDate).getTime() : undefined;
+    // CRITICAL FIX: Send null, NOT undefined, to clear the schedule field in Firestore
+    const scheduledTimestamp = statusMode === 'scheduled' && scheduleDate 
+        ? new Date(scheduleDate).getTime() 
+        : null;
+        
     const finalStatus = statusMode;
 
     try {
@@ -127,7 +122,6 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
       };
 
       if (isEditMode && initialBooklet) {
-        // REPUBLISH
         resultBooklet = await updateBooklet(
             initialBooklet.id,
             file,
@@ -136,7 +130,6 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
             coverPreview
         );
       } else {
-        // NEW UPLOAD
         resultBooklet = await uploadPDF(
             file!, 
             { ...metadata, ownerId: 'demo-user' }, 

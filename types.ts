@@ -23,7 +23,7 @@ export interface Booklet {
   ownerId?: string; // ID of the user who uploaded it
   stats?: BookletStats;
   status?: 'published' | 'draft' | 'scheduled';
-  scheduledAt?: number;
+  scheduledAt?: number | null;
 }
 
 export interface AppSettings {

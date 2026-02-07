@@ -44,6 +44,10 @@ function useDebouncedResize(delay: number) {
 
 // 1. PAGE CONTENT COMPONENT
 const PageContent = React.forwardRef<HTMLDivElement, any>((props, ref) => {
+    // Logic: Page 0 is Cover (Right). Page 1 is Left. Page 2 is Right.
+    // Even indices = Right Side Panel. Odd indices = Left Side Panel.
+    const isRightPage = props.pageNumber % 2 === 0;
+
     return (
         <div 
             ref={ref} 
@@ -57,11 +61,12 @@ const PageContent = React.forwardRef<HTMLDivElement, any>((props, ref) => {
                 WebkitBackfaceVisibility: 'hidden',
                 overflow: 'hidden',
                 position: 'relative',
-                boxShadow: 'inset 0 0 20px rgba(0,0,0,0.02)', 
-                cursor: 'pointer' // Add pointer to indicate clickability
+                cursor: 'pointer',
+                // Realistic Paper Shadow: Soft drop shadow around the page
+                boxShadow: '0 4px 10px rgba(0,0,0,0.15)', 
             }}
-            className="shadow-sm group"
-            onClick={props.onPageClick} // Handle click directly
+            className="group"
+            onClick={props.onPageClick} 
         >
                {/* Spinner BEHIND the PDF Page */}
                <div className="absolute inset-0 flex items-center justify-center z-0 bg-white">
@@ -73,18 +78,33 @@ const PageContent = React.forwardRef<HTMLDivElement, any>((props, ref) => {
                    {props.children}
                </div>
 
-               {/* Visual Feedback on Hover (Subtle Shadow) */}
-               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-300 pointer-events-none z-30" />
+               {/* Hover Effect: Very subtle dark overlay when hovering to indicate clickability */}
+               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/[0.02] transition-colors duration-300 pointer-events-none z-30" />
 
-               {/* Spine Gradient Overlay */}
-               <div className="absolute top-0 bottom-0 w-8 pointer-events-none z-20" 
+               {/* --- THE SPINE SHADOW (Booklet Effect) --- */}
+               <div className="absolute top-0 bottom-0 pointer-events-none z-20" 
                     style={{ 
-                        right: props.pageNumber % 2 === 0 ? undefined : 0, 
-                        left: props.pageNumber % 2 === 0 ? 0 : undefined,
-                        background: props.pageNumber % 2 === 0 
-                            ? 'linear-gradient(to right, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0) 100%)' 
-                            : 'linear-gradient(to left, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0) 100%)'
+                        // If Right Page: Shadow is on Left edge.
+                        // If Left Page: Shadow is on Right edge.
+                        left: isRightPage ? 0 : undefined,
+                        right: isRightPage ? undefined : 0,
+                        width: '40px', // Width of the gradient
+                        background: isRightPage
+                            // Right Page: Dark on Left -> Transparent on Right
+                            ? 'linear-gradient(to right, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.1) 20%, rgba(0,0,0,0) 100%)' 
+                            // Left Page: Transparent on Left -> Dark on Right
+                            : 'linear-gradient(to left, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.1) 20%, rgba(0,0,0,0) 100%)'
                     }} 
+               />
+               
+               {/* --- THE BINDER CREASE (Thin dark line in the deep center) --- */}
+               <div className="absolute top-0 bottom-0 pointer-events-none z-20"
+                    style={{
+                        left: isRightPage ? 0 : undefined,
+                        right: isRightPage ? undefined : 0,
+                        width: '1px',
+                        backgroundColor: 'rgba(0,0,0,0.15)' 
+                    }}
                />
         </div>
     );
@@ -134,22 +154,14 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
     if (bookRef.current) bookRef.current.pageFlip().flipPrev();
   }, []);
 
-  // Custom click handler to ensure flipping works reliably
   const handlePageClick = useCallback((index: number) => {
-      // If clicking even page (Left side), go back. 
-      // If clicking odd page (Right side), go next.
-      // Note: Index is 0-based. 
-      // Page 0 (Cover) is right side. Page 1 is left. Page 2 is right.
-      
+      // 0 = Cover (Right)
+      // 1 = Left, 2 = Right
       if (index === 0) {
           handleNext();
           return;
       }
-      
-      // Basic logic: odd indices are usually on the Left (Back), even on Right (Next)
-      // But page 0 is special (it's a cover on the right).
       const isRightSide = index % 2 === 0;
-      
       if (isRightSide) {
           handleNext();
       } else {
@@ -227,12 +239,14 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
     startZIndex: 0,
     autoSize: false,
     
-    // --- KEY FIXES FOR CLICK INTERACTION ---
-    clickEventForward: true,   // Allow clicks to pass through
-    useMouseEvents: false,     // DISABLE DRAG (Solves snap-back issue)
-    swipeDistance: 0,          // Disable swipe thresholds
-    showPageCorners: true,     // Keep the visual hint
-    disableFlipByClick: false, // Allow built-in click to flip
+    // --- NO HOVER FOLDING ---
+    showPageCorners: false,    // DISABLES the dog-ear effect on hover
+    
+    // --- CLICK INTERACTION ---
+    clickEventForward: true,   
+    useMouseEvents: false,     // Disable drag
+    swipeDistance: 0,          
+    disableFlipByClick: false, // Allow click to flip
     
     style: { margin: '0 auto' }
   }), [dims]);
@@ -332,7 +346,6 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
                                                     width={dims.pageWidth} 
                                                     height={dims.pageHeight}
                                                     pageNumber={index}
-                                                    // Pass our manual click handler
                                                     onPageClick={() => handlePageClick(index)}
                                                 >
                                                     <Document file={booklet.url} loading={null}>

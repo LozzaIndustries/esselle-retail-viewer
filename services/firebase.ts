@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { getFirestore, collection, addDoc, getDocs, doc, getDoc, setDoc, updateDoc, increment, orderBy, query, serverTimestamp, where } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, getDocs, doc, getDoc, setDoc, updateDoc, increment, orderBy, query, serverTimestamp, where, deleteField } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, uploadString } from 'firebase/storage';
 import { Booklet, AppSettings } from '../types';
 
@@ -13,7 +13,7 @@ const getEnv = (key: string): string | undefined => {
       return import.meta.env[key];
     }
   } catch (e) {
-    // Squelch errors in environments where import.meta is restricted
+    // Squelch errors
   }
   return undefined;
 };
@@ -54,8 +54,6 @@ let storage: any = null;
 let isDemoMode = true; 
 
 try {
-  // Validate essential config
-  // We check if the key exists and is not an empty string placeholder
   const hasKeys = firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.apiKey.length > 0;
   
   if (hasKeys) {
@@ -66,10 +64,7 @@ try {
       isDemoMode = false;
       console.log("🔥 Firebase initialized in PRODUCTION Mode.");
   } else {
-      console.group("⚠️ Firebase Config Missing - Falling back to DEMO Mode");
-      console.warn("The application is running in local demo mode because Firebase credentials were not found.");
-      console.warn("To enable persistence, add VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID, etc. to your .env file.");
-      console.groupEnd();
+      console.warn("⚠️ Firebase Config Missing - App running in DEMO MODE.");
   }
 } catch (e) {
   console.error("Firebase initialization critical error:", e);
@@ -77,12 +72,23 @@ try {
 
 export const isAppInDemoMode = () => isDemoMode;
 
+// --- UTILS ---
+// Removes undefined keys. Keeps null (important for clearing fields).
+const cleanData = (data: any) => {
+    const cleaned: any = {};
+    Object.keys(data).forEach(key => {
+        if (data[key] !== undefined) {
+            cleaned[key] = data[key];
+        }
+    });
+    return cleaned;
+};
+
 // ----- AUTH SERVICE -----
 
 export const subscribeToAuth = (callback: (user: FirebaseUser | null) => void) => {
     if (isDemoMode || !auth) {
         const demoUser = localStorage.getItem('demo_authed');
-        // Simulate async behavior
         const tm = setTimeout(() => {
             if (demoUser === 'true') {
                 callback({ uid: 'admin-user', email: 'admin@esselleretail.com', displayName: 'Admin Publisher' } as any);
@@ -99,7 +105,6 @@ export const loginWithEmail = async (emailInput: string, passwordInput: string) 
     const email = emailInput.trim().toLowerCase();
     const password = passwordInput.trim();
 
-    // Admin backdoor for demo or fallback
     if (email === 'admin' && password === 'admin') {
         localStorage.setItem('demo_authed', 'true');
         return { uid: 'admin-user', email: 'admin@esselleretail.com', displayName: 'Admin Publisher' };
@@ -140,9 +145,18 @@ export const fetchBooklets = async (ownerId?: string, publicOnly: boolean = fals
     const getLocalData = () => {
         try {
             const local = localStorage.getItem('lumiere_booklets');
-            const saved = local ? JSON.parse(local) : [];
-            // Merge with mock if empty for demo purposes
-            if (saved.length === 0) return MOCK_BOOKLETS;
+            let saved = local ? JSON.parse(local) : [];
+            if (saved.length === 0 && !localStorage.getItem('lumiere_booklets_cleared')) {
+                saved = MOCK_BOOKLETS;
+            }
+            if (publicOnly) {
+                const now = Date.now();
+                saved = saved.filter((b: Booklet) => {
+                    if (b.status === 'draft') return false;
+                    if (b.status === 'scheduled' && b.scheduledAt && b.scheduledAt > now) return false;
+                    return true;
+                });
+            }
             return saved.sort((a: Booklet, b: Booklet) => b.createdAt - a.createdAt);
         } catch (e) {
             return MOCK_BOOKLETS;
@@ -156,24 +170,25 @@ export const fetchBooklets = async (ownerId?: string, publicOnly: boolean = fals
         let q;
         const bookletsRef = collection(db, "booklets");
 
-        if (publicOnly) {
-            q = query(bookletsRef, where("status", "in", ["published", "scheduled"]), orderBy("createdAt", "desc"));
-        } else {
-            q = ownerId 
-                ? query(bookletsRef, where("ownerId", "==", ownerId), orderBy("createdAt", "desc"))
-                : query(bookletsRef, orderBy("createdAt", "desc"));
-        }
+        // NOTE: We don't filter strictly by status in the query to avoid needing a composite index immediately.
+        // We filter in memory for perfect accuracy.
+        q = query(bookletsRef, orderBy("createdAt", "desc"));
             
         const snapshot = await getDocs(q);
         let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booklet));
 
-        // Filter out future scheduled items on client side
         if (publicOnly) {
             const now = Date.now();
             data = data.filter(b => {
+                 // Hide drafts from public
+                 if (b.status === 'draft') return false;
+                 // Hide scheduled items in the future
                  if (b.status === 'scheduled' && b.scheduledAt && b.scheduledAt > now) return false;
                  return true;
             });
+        } else if (ownerId) {
+            // Filter for admin view if ownerId provided
+            data = data.filter(b => b.ownerId === ownerId);
         }
 
         return data;
@@ -186,7 +201,6 @@ export const fetchBooklets = async (ownerId?: string, publicOnly: boolean = fals
 export const getBookletById = async (id: string): Promise<Booklet | null> => {
     let booklet: Booklet | null = null;
 
-    // 1. Try Firestore
     if (!isDemoMode && db) {
         try {
             const docSnap = await getDoc(doc(db, "booklets", id));
@@ -198,7 +212,6 @@ export const getBookletById = async (id: string): Promise<Booklet | null> => {
         }
     }
 
-    // 2. Try Local/Mock if not found in DB or if in Demo mode
     if (!booklet) {
         const localData = localStorage.getItem('lumiere_booklets');
         const allLocal = localData ? JSON.parse(localData) : MOCK_BOOKLETS;
@@ -207,7 +220,7 @@ export const getBookletById = async (id: string): Promise<Booklet | null> => {
 
     if (!booklet) return null;
 
-    // Visibility Check
+    // Visibility Logic
     if (isAuthenticated()) return booklet;
 
     if (booklet.status === 'draft') return null;
@@ -245,50 +258,39 @@ export const uploadPDF = async (
         description: string; 
         ownerId: string;
         status: 'published' | 'draft' | 'scheduled';
-        scheduledAt?: number;
+        scheduledAt?: number | null;
     },
     onProgress: (progress: number) => void,
     coverDataUrl?: string | null
   ): Promise<Booklet> => {
     const fileId = `up_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // DEMO MODE UPLOAD
+    // DEMO MODE
     if (isDemoMode || !storage) {
-        try {
-            const pdfDataUrl = await mockUploadProcess(file, fileId, onProgress);
-            let finalCoverUrl = DEFAULT_COVER;
-            if (coverDataUrl) finalCoverUrl = coverDataUrl;
+        const pdfDataUrl = await mockUploadProcess(file, fileId, onProgress);
+        let finalCoverUrl = DEFAULT_COVER;
+        if (coverDataUrl) finalCoverUrl = coverDataUrl;
 
-            const newBooklet: Booklet = {
-                id: fileId,
-                title: metadata.title,
-                description: metadata.description,
-                url: pdfDataUrl,
-                createdAt: Date.now(),
-                coverUrl: finalCoverUrl,
-                ownerId: metadata.ownerId,
-                status: metadata.status,
-                scheduledAt: metadata.scheduledAt,
-                stats: { views: 0, uniqueReaders: 0, avgTimeSeconds: 0, shares: 0 }
-            };
-            
-            try {
-                const local = localStorage.getItem('lumiere_booklets');
-                const booklets = local ? JSON.parse(local) : [];
-                localStorage.setItem('lumiere_booklets', JSON.stringify([newBooklet, ...booklets]));
-            } catch (e) { 
-                console.error("Storage full or quota exceeded", e);
-                throw new Error("Local Demo Storage Full! PDF is too large for browser storage. Please connect to Firebase for unlimited storage.");
-            }
-            
-            return newBooklet;
-        } catch (e) {
-            throw e;
+        const newBooklet: Booklet = {
+            id: fileId,
+            ...metadata,
+            url: pdfDataUrl,
+            createdAt: Date.now(),
+            coverUrl: finalCoverUrl,
+            stats: { views: 0, uniqueReaders: 0, avgTimeSeconds: 0, shares: 0 }
+        };
+        
+        try {
+            const local = localStorage.getItem('lumiere_booklets');
+            const booklets = local ? JSON.parse(local) : [];
+            localStorage.setItem('lumiere_booklets', JSON.stringify([newBooklet, ...booklets]));
+        } catch (e) { 
+            throw new Error("Local Demo Storage Full.");
         }
+        return newBooklet;
     }
 
-    // PRODUCTION UPLOAD
-    // 1. Upload PDF
+    // PRODUCTION
     const storageRef = ref(storage, `booklets/${fileId}`);
     const uploadTask = uploadBytesResumable(storageRef, file);
 
@@ -298,31 +300,32 @@ export const uploadPDF = async (
             (err) => reject(err),
             async () => {
                 const url = await getDownloadURL(uploadTask.snapshot.ref);
-                
-                // 2. Upload Cover if exists
                 let finalCoverUrl = DEFAULT_COVER;
                 if (coverDataUrl) {
                     try {
                         const coverRef = ref(storage, `covers/${fileId}.jpg`);
                         await uploadString(coverRef, coverDataUrl, 'data_url');
                         finalCoverUrl = await getDownloadURL(coverRef);
-                    } catch (e) {
-                        console.error("Cover upload failed", e);
-                    }
+                    } catch (e) {}
                 }
 
-                // 3. Save Metadata to Firestore
-                const docRef = await addDoc(collection(db, "booklets"), {
-                    ...metadata,
+                // Force scheduledAt to null if not scheduled
+                const finalMetadata = { ...metadata };
+                if (finalMetadata.status !== 'scheduled') {
+                    finalMetadata.scheduledAt = null;
+                }
+
+                const docRef = await addDoc(collection(db, "booklets"), cleanData({
+                    ...finalMetadata,
                     url,
                     createdAt: serverTimestamp(),
                     coverUrl: finalCoverUrl,
                     stats: { views: 0, uniqueReaders: 0, avgTimeSeconds: 0, shares: 0 }
-                });
+                }));
                 
                 resolve({ 
                     id: docRef.id, 
-                    ...metadata, 
+                    ...finalMetadata, 
                     url, 
                     createdAt: Date.now(),
                     coverUrl: finalCoverUrl 
@@ -339,12 +342,12 @@ export const updateBooklet = async (
         title: string; 
         description: string;
         status?: 'published' | 'draft' | 'scheduled';
-        scheduledAt?: number;
+        scheduledAt?: number | null;
     },
     onProgress: (progress: number) => void,
     coverDataUrl?: string | null
 ): Promise<Booklet> => {
-    // 1. Handle Demo Mode Update
+    // Demo Mode
     if (isDemoMode || !db) {
         const local = localStorage.getItem('lumiere_booklets');
         if (!local) throw new Error("No local data");
@@ -354,29 +357,37 @@ export const updateBooklet = async (
 
         const updated = { ...booklets[idx], ...metadata };
         
+        // Logic to clear schedule in demo mode
+        if (updated.status !== 'scheduled') updated.scheduledAt = null;
+
         if (file) {
             const pdfData = await mockUploadProcess(file, bookletId, onProgress);
             updated.url = pdfData;
         } else {
             onProgress(100);
         }
-
         if (coverDataUrl) updated.coverUrl = coverDataUrl;
-
-        try {
-            booklets[idx] = updated;
-            localStorage.setItem('lumiere_booklets', JSON.stringify(booklets));
-        } catch (e) {
-             console.error("Storage full or quota exceeded", e);
-             throw new Error("Local Demo Storage Full! PDF is too large for browser storage. Please connect to Firebase.");
-        }
+        
+        booklets[idx] = updated;
+        localStorage.setItem('lumiere_booklets', JSON.stringify(booklets));
         return updated;
     }
 
-    // 2. Production Update
+    // PRODUCTION
     const docRef = doc(db, 'booklets', bookletId);
+    
+    // 1. Prepare Updates
     const updates: any = { ...metadata };
 
+    // CRITICAL: If we are switching OUT of scheduled mode, we MUST explicitly set scheduledAt to null.
+    // If we just leave it undefined, cleanData removes it, and Firestore keeps the OLD date.
+    if (updates.status && updates.status !== 'scheduled') {
+        updates.scheduledAt = null; 
+    }
+
+    const cleanedUpdates = cleanData(updates);
+
+    // 2. Handle File Upload
     if (file) {
         const fileRef = `booklets/${bookletId}_v${Date.now()}`;
         const storageRef = ref(storage, fileRef);
@@ -387,7 +398,7 @@ export const updateBooklet = async (
                 (snap) => onProgress((snap.bytesTransferred / snap.totalBytes) * 100),
                 (err) => reject(err),
                 async () => {
-                    updates.url = await getDownloadURL(uploadTask.snapshot.ref);
+                    cleanedUpdates.url = await getDownloadURL(uploadTask.snapshot.ref);
                     resolve();
                 }
             );
@@ -400,28 +411,22 @@ export const updateBooklet = async (
         try {
             const coverRef = ref(storage, `covers/${bookletId}_v${Date.now()}.jpg`);
             await uploadString(coverRef, coverDataUrl, 'data_url');
-            updates.coverUrl = await getDownloadURL(coverRef);
+            cleanedUpdates.coverUrl = await getDownloadURL(coverRef);
         } catch (e) {}
     }
 
-    await updateDoc(docRef, updates);
+    await updateDoc(docRef, cleanedUpdates);
     
-    // Return updated object by fetching fresh
     const finalDoc = await getDoc(docRef);
     return { id: finalDoc.id, ...finalDoc.data() } as Booklet;
 };
 
 export const saveBrandingSettings = async (settings: AppSettings) => {
     if (isDemoMode || !db) {
-        try {
-            localStorage.setItem('lumiere_settings', JSON.stringify(settings));
-        } catch (e) {
-            console.error("Storage quota exceeded", e);
-            // We don't throw here to avoid blocking UI for simple settings, but we log it.
-        }
+        localStorage.setItem('lumiere_settings', JSON.stringify(settings));
         return;
     }
-    await setDoc(doc(db, 'config', 'global_settings'), settings, { merge: true });
+    await setDoc(doc(db, 'config', 'global_settings'), cleanData(settings), { merge: true });
 };
 
 export const getBrandingSettings = async (): Promise<AppSettings> => {
