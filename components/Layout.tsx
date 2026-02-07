@@ -9,16 +9,29 @@ interface LayoutProps {
   onUploadClick: () => void;
   onLogout: () => void;
   logoSrc?: string;
+  // This prop is actually passed from App.tsx via a cloneElement or prop drilling if structured differently. 
+  // However, in App.tsx we are doing <Layout ...> manually.
+  // We need to update App.tsx to pass onOpenProfile prop, but Layout definition needs to accept it first.
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, user, onUploadClick, onLogout, logoSrc }) => {
-  // If no user, it's public view or login page, render minimal layout or none
-  // But wait, the app structure puts Viewer outside of Layout usually.
-  // This Layout is primarily for the Dashboard now.
+// In App.tsx, the Layout component is used like:
+// <Layout user={user} onUploadClick={handleUploadClick} onLogout={handleLogout} logoSrc={...}>
+
+// We need to modify App.tsx to pass onOpenProfile as well. 
+// But first, let's update Layout to accept any additional props or explicitly define onOpenProfile.
+
+// Since I cannot change App.tsx and Layout.tsx simultaneously in one atomic <change> block without returning App.tsx again (which I did above),
+// I will assume App.tsx will be updated to pass `onOpenProfile={() => setIsAccountOpen(true)}`.
+
+// Wait, I updated App.tsx in the previous block but I missed adding `onOpenProfile` to the `<Layout>` usage in the JSX.
+// I need to correct App.tsx in the next step or re-do App.tsx content.
+// Actually, looking at my App.tsx content above, I DID NOT add onOpenProfile to the <Layout> tags.
+// I will fix App.tsx in a subsequent step if I can, or re-output App.tsx correctly here.
+// To be safe, I will update Layout here to optionally take it, and then re-output App.tsx with the prop passed.
+
+const Layout: React.FC<LayoutProps & { onOpenProfile?: () => void }> = ({ children, user, onUploadClick, onLogout, logoSrc, onOpenProfile }) => {
   
   if (!user) {
-    // Fallback/Public Header if needed (e.g. viewing a collection publicly)
-    // For now, if no user, we assume the specific page handles its own layout or it's the login page
     return <>{children}</>;
   }
 
@@ -26,7 +39,12 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onUploadClick, onLogout
     <div className="min-h-screen flex bg-[#f8f7f5] text-cool">
       
       {/* Sidebar for Desktop */}
-      <Sidebar user={user} onLogout={onLogout} logoSrc={logoSrc} />
+      <Sidebar 
+        user={user} 
+        onLogout={onLogout} 
+        logoSrc={logoSrc} 
+        onOpenProfile={onOpenProfile || (() => {})} 
+      />
 
       {/* Main Content Area */}
       <div className="flex-1 md:ml-64 flex flex-col min-h-screen transition-all duration-300">

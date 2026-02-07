@@ -1,9 +1,9 @@
 // @ts-ignore
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, User as FirebaseUser, updateProfile } from 'firebase/auth';
-import { getFirestore, collection, addDoc, getDocs, doc, getDoc, setDoc, updateDoc, increment, orderBy, query, serverTimestamp, where } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, increment, orderBy, query, serverTimestamp, where } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, uploadString } from 'firebase/storage';
-import { Booklet, AppSettings } from '../types';
+import { Booklet, AppSettings, User } from '../types';
 
 // --- CONFIGURATION ---
 // We are HARDCODING the keys to ensure it connects to the live project.
@@ -66,6 +66,22 @@ const cleanData = (data: any) => {
     return cleaned;
 };
 
+const normalizeDate = (val: any): number => {
+    if (!val) return Date.now();
+    if (typeof val === 'number') return val;
+    if (val.toMillis) return val.toMillis(); // Firestore Timestamp
+    if (val instanceof Date) return val.getTime();
+    return Date.now();
+};
+
+const normalizeOptionalDate = (val: any): number | null | undefined => {
+    if (val === null || val === undefined) return val;
+    if (typeof val === 'number') return val;
+    if (val.toMillis) return val.toMillis();
+    if (val instanceof Date) return val.getTime();
+    return null;
+}
+
 // --- MOCK LOCALSTORAGE HELPERS ---
 const getLocalBooklets = (): Booklet[] => {
     try {
@@ -80,7 +96,7 @@ const setLocalBooklets = (data: Booklet[]) => {
 
 // ----- AUTH SERVICE -----
 
-export const subscribeToAuth = (callback: (user: FirebaseUser | null) => void) => {
+export const subscribeToAuth = (callback: (user: User | null) => void) => {
     if (isDemo || !auth) {
         // Fallback: Check localStorage for a fake user
         const checkLocal = () => {
@@ -104,7 +120,18 @@ export const subscribeToAuth = (callback: (user: FirebaseUser | null) => void) =
     }
     
     // Real Firebase Auth
-    return onAuthStateChanged(auth, callback);
+    return onAuthStateChanged(auth, (user: FirebaseUser | null) => {
+        if (user) {
+            callback({
+                uid: user.uid,
+                email: user.email,
+                displayName: user.displayName,
+                photoURL: user.photoURL
+            });
+        } else {
+            callback(null);
+        }
+    });
 };
 
 export const loginWithEmail = async (emailInput: string, passwordInput: string) => {
@@ -114,7 +141,8 @@ export const loginWithEmail = async (emailInput: string, passwordInput: string) 
             const fakeUser = { 
                 uid: 'demo-admin-123', 
                 email: 'admin@demo.local', 
-                displayName: 'Demo Admin' 
+                displayName: 'Demo Admin',
+                photoURL: null
             };
             localStorage.setItem(LS_USER_KEY, JSON.stringify(fakeUser));
             window.dispatchEvent(new Event('esselle-auth-change'));
@@ -126,7 +154,7 @@ export const loginWithEmail = async (emailInput: string, passwordInput: string) 
     // Real Login
     // Admin backdoor for convenience in hybrid mode
     if (emailInput === 'admin' && passwordInput === 'admin') {
-         return { uid: 'admin-user', email: 'admin@esselleretail.com', displayName: 'Admin Publisher' };
+         return { uid: 'admin-user', email: 'admin@esselleretail.com', displayName: 'Admin Publisher', photoURL: null };
     }
     return signInWithEmailAndPassword(auth, emailInput, passwordInput);
 };
@@ -136,7 +164,8 @@ export const registerWithEmail = async (emailInput: string, passwordInput: strin
         const fakeUser = { 
             uid: `demo-user-${Date.now()}`, 
             email: emailInput, 
-            displayName: nameInput 
+            displayName: nameInput,
+            photoURL: null
         };
         localStorage.setItem(LS_USER_KEY, JSON.stringify(fakeUser));
         window.dispatchEvent(new Event('esselle-auth-change'));
@@ -144,7 +173,57 @@ export const registerWithEmail = async (emailInput: string, passwordInput: strin
     }
     const cred = await createUserWithEmailAndPassword(auth, emailInput, passwordInput);
     await updateProfile(cred.user, { displayName: nameInput });
-    return { ...cred.user, displayName: nameInput };
+    return { ...cred.user, displayName: nameInput, photoURL: null };
+};
+
+export const updateUserProfile = async (uid: string, name: string, photoFile?: File): Promise<User> => {
+    if (isDemo || !auth) {
+        const stored = localStorage.getItem(LS_USER_KEY);
+        if (stored) {
+            const user = JSON.parse(stored);
+            user.displayName = name;
+            
+            if (photoFile) {
+                // Mock upload for demo
+                const reader = new FileReader();
+                await new Promise<void>((resolve) => {
+                    reader.onloadend = () => {
+                        user.photoURL = reader.result as string;
+                        resolve();
+                    };
+                    reader.readAsDataURL(photoFile);
+                });
+            }
+            
+            localStorage.setItem(LS_USER_KEY, JSON.stringify(user));
+            window.dispatchEvent(new Event('esselle-auth-change'));
+            return user;
+        }
+        throw new Error("User not found");
+    }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser) throw new Error("No user logged in");
+
+    let photoURL = currentUser.photoURL;
+
+    if (photoFile) {
+        const storageRef = ref(storage, `users/${uid}/profile_${Date.now()}`);
+        await uploadBytesResumable(storageRef, photoFile);
+        photoURL = await getDownloadURL(storageRef);
+    }
+
+    await updateProfile(currentUser, {
+        displayName: name,
+        photoURL: photoURL
+    });
+
+    return {
+        uid: currentUser.uid,
+        email: currentUser.email,
+        displayName: name,
+        photoURL: photoURL
+    };
 };
 
 export const logout = async () => {
@@ -181,7 +260,15 @@ export const fetchBooklets = async (ownerId?: string, publicOnly: boolean = fals
         const q = query(bookletsRef, orderBy("createdAt", "desc"));
             
         const snapshot = await getDocs(q);
-        let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booklet));
+        let data = snapshot.docs.map(d => {
+            const raw = d.data();
+            return { 
+                id: d.id, 
+                ...raw,
+                createdAt: normalizeDate(raw.createdAt),
+                scheduledAt: normalizeOptionalDate(raw.scheduledAt)
+            } as Booklet;
+        });
 
         if (publicOnly) {
             const now = Date.now();
@@ -215,7 +302,14 @@ export const getBookletById = async (id: string): Promise<Booklet | null> => {
     try {
         const docSnap = await getDoc(doc(db, "booklets", id));
         if (docSnap.exists()) {
-             const booklet = { id: docSnap.id, ...docSnap.data() } as Booklet;
+             const raw = docSnap.data();
+             const booklet = { 
+                id: docSnap.id, 
+                ...raw,
+                createdAt: normalizeDate(raw.createdAt),
+                scheduledAt: normalizeOptionalDate(raw.scheduledAt)
+             } as Booklet;
+
              if (booklet.status === 'draft') return null;
              if (booklet.status === 'scheduled' && booklet.scheduledAt) {
                 if (Date.now() < booklet.scheduledAt) return null;
@@ -404,7 +498,23 @@ export const updateBooklet = async (
     await updateDoc(docRef, cleanedUpdates);
     
     const finalDoc = await getDoc(docRef);
-    return { id: finalDoc.id, ...finalDoc.data() } as Booklet;
+    const raw = finalDoc.data();
+    return { 
+        id: finalDoc.id, 
+        ...raw,
+        createdAt: normalizeDate(raw?.createdAt),
+        scheduledAt: normalizeOptionalDate(raw?.scheduledAt)
+    } as Booklet;
+};
+
+export const deleteBooklet = async (id: string) => {
+    if (isDemo || !db) {
+        const booklets = getLocalBooklets();
+        const filtered = booklets.filter(b => b.id !== id);
+        setLocalBooklets(filtered);
+        return;
+    }
+    await deleteDoc(doc(db, "booklets", id));
 };
 
 export const saveBrandingSettings = async (settings: AppSettings) => {
@@ -443,17 +553,40 @@ export const uploadLogo = async (file: File): Promise<string> => {
 };
 
 export const recordView = async (id: string) => { 
+    // Check for unique reader using localStorage
+    const storageKey = `esselle_viewed_${id}`;
+    const hasViewed = localStorage.getItem(storageKey);
+    const isUnique = !hasViewed;
+
+    if (isUnique) {
+        localStorage.setItem(storageKey, 'true');
+    }
+
     if (isDemo || !db) {
         const booklets = getLocalBooklets();
         const index = booklets.findIndex(b => b.id === id);
         if (index !== -1) {
             const b = booklets[index];
             if (!b.stats) b.stats = { views: 0, uniqueReaders: 0, avgTimeSeconds: 0, shares: 0 };
+            
             b.stats.views++;
+            if (isUnique) {
+                b.stats.uniqueReaders++;
+            }
+            
             booklets[index] = b;
             setLocalBooklets(booklets);
         }
         return;
     }
-    updateDoc(doc(db, 'booklets', id), { 'stats.views': increment(1) }).catch(() => {});
+
+    const updates: any = { 
+        'stats.views': increment(1) 
+    };
+
+    if (isUnique) {
+        updates['stats.uniqueReaders'] = increment(1);
+    }
+
+    updateDoc(doc(db, 'booklets', id), updates).catch(() => {});
 };

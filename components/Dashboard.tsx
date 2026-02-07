@@ -35,6 +35,9 @@ const Dashboard: React.FC<DashboardProps> = ({ booklets, onView, onEdit }) => {
              const isScheduled = item.status === 'scheduled';
              const isFuture = isScheduled && item.scheduledAt && item.scheduledAt > Date.now();
              
+             // Determine valid date to show
+             const displayDate = item.scheduledAt || item.createdAt || Date.now();
+
              return (
                 <motion.div
                   key={item.id}
@@ -58,7 +61,7 @@ const Dashboard: React.FC<DashboardProps> = ({ booklets, onView, onEdit }) => {
                     )}
                     {isFuture && (
                         <div className="absolute top-3 left-3 z-30 bg-blue-600/90 text-white px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 backdrop-blur-sm shadow-sm">
-                            <Calendar size={10} /> {new Date(item.scheduledAt!).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
+                            <Calendar size={10} /> {new Date(displayDate).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
                         </div>
                     )}
 
@@ -102,7 +105,7 @@ const Dashboard: React.FC<DashboardProps> = ({ booklets, onView, onEdit }) => {
                     <div className="flex items-center justify-between text-[10px] font-bold text-warm uppercase tracking-[0.2em]">
                         <div className="flex items-center gap-1">
                             <Clock size={10} />
-                            {new Date(item.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
+                            {new Date(displayDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
                         </div>
                         {item.ownerName && (
                             <div className="flex items-center gap-1 text-cool/50" title={`Published by ${item.ownerName}`}>

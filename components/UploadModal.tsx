@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, UploadCloud, FileText, CheckCircle, AlertCircle, Image as ImageIcon, Loader2, RefreshCw, Calendar, EyeOff, Globe } from 'lucide-react';
+import { X, UploadCloud, FileText, CheckCircle, AlertCircle, Image as ImageIcon, Loader2, RefreshCw, Calendar, EyeOff, Globe, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { uploadPDF, updateBooklet, isAppInDemoMode } from '../services/firebase';
+import { uploadPDF, updateBooklet, deleteBooklet, isAppInDemoMode } from '../services/firebase';
 import { pdfjs } from 'react-pdf';
 import { Booklet, User } from '../types';
 
@@ -12,11 +12,12 @@ interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUploadComplete: (booklet: Booklet) => void;
+  onDeleteComplete?: (id: string) => void;
   initialBooklet?: Booklet | null;
   currentUser?: User | null;
 }
 
-const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComplete, initialBooklet, currentUser }) => {
+const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComplete, onDeleteComplete, initialBooklet, currentUser }) => {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -95,6 +96,22 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
       } else {
         alert("Please select a valid PDF file.");
       }
+    }
+  };
+
+  const handleDelete = async () => {
+    if (window.confirm("Are you sure you want to delete this publication? This action cannot be undone.")) {
+        setStatus('uploading');
+        try {
+            if (initialBooklet && onDeleteComplete) {
+                await deleteBooklet(initialBooklet.id);
+                onDeleteComplete(initialBooklet.id);
+                onClose();
+            }
+        } catch (err) {
+            console.error(err);
+            setStatus('error');
+        }
     }
   };
 
@@ -402,30 +419,43 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadComp
                   )}
 
                   {/* Footer Actions */}
-                  <div className="flex justify-end gap-3 pt-2">
-                    <button 
-                      type="button" 
-                      onClick={onClose}
-                      className="px-6 py-3 rounded-full text-cool hover:bg-gray-100 font-semibold transition-colors"
-                      disabled={status === 'uploading'}
-                    >
-                      Cancel
-                    </button>
-                    <button 
-                      type="submit" 
-                      disabled={(!file && !isEditMode) || status === 'uploading' || (statusMode === 'scheduled' && !scheduleDate)}
-                      className={`px-8 py-3 rounded-full font-semibold transition-all ${
-                        (!file && !isEditMode) || status === 'uploading' || (statusMode === 'scheduled' && !scheduleDate)
-                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
-                        : 'bg-dark text-white hover:bg-cool shadow-lg hover:shadow-xl'
-                      }`}
-                    >
-                      {status === 'uploading' ? 'Processing...' : (
-                          statusMode === 'draft' ? 'Save Draft' : 
-                          statusMode === 'scheduled' ? 'Schedule' : 
-                          isEditMode ? 'Save Changes' : 'Publish Now'
-                      )}
-                    </button>
+                  <div className="flex justify-between pt-2 items-center">
+                    <div>
+                        {isEditMode && (
+                            <button 
+                                type="button" 
+                                onClick={handleDelete}
+                                className="flex items-center gap-2 px-4 py-3 rounded-full text-red-600 hover:bg-red-50 text-sm font-semibold transition-colors"
+                            >
+                                <Trash2 size={16} /> Delete Publication
+                            </button>
+                        )}
+                    </div>
+                    <div className="flex gap-3">
+                        <button 
+                        type="button" 
+                        onClick={onClose}
+                        className="px-6 py-3 rounded-full text-cool hover:bg-gray-100 font-semibold transition-colors"
+                        disabled={status === 'uploading'}
+                        >
+                        Cancel
+                        </button>
+                        <button 
+                        type="submit" 
+                        disabled={(!file && !isEditMode) || status === 'uploading' || (statusMode === 'scheduled' && !scheduleDate)}
+                        className={`px-8 py-3 rounded-full font-semibold transition-all ${
+                            (!file && !isEditMode) || status === 'uploading' || (statusMode === 'scheduled' && !scheduleDate)
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                            : 'bg-dark text-white hover:bg-cool shadow-lg hover:shadow-xl'
+                        }`}
+                        >
+                        {status === 'uploading' ? 'Processing...' : (
+                            statusMode === 'draft' ? 'Save Draft' : 
+                            statusMode === 'scheduled' ? 'Schedule' : 
+                            isEditMode ? 'Save Changes' : 'Publish Now'
+                        )}
+                        </button>
+                    </div>
                   </div>
                 </form>
               )}

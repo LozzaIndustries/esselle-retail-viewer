@@ -179,6 +179,26 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
     }
   };
 
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+        const response = await fetch(booklet.url);
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${booklet.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    } catch (err) {
+        console.error("Download failed", err);
+        // Fallback
+        window.open(booklet.url, '_blank');
+    }
+  };
+
   // 2. DIMENSIONS
   const dims = useMemo(() => {
     if (!windowSize || !pdfDimensions) return null;
@@ -273,14 +293,13 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
                     <Share2 size={12} />
                     <span>Share</span>
                 </button>
-                <a 
-                    href={booklet.url} 
-                    download 
+                <button 
+                    onClick={handleDownload} 
                     className="flex items-center gap-2 px-4 py-1.5 text-[10px] font-bold text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all uppercase tracking-widest"
                 >
                     <Download size={12} />
                     <span>Download</span>
-                </a>
+                </button>
             </div>
         </div>
 

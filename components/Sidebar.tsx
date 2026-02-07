@@ -1,15 +1,16 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { BookOpen, Settings, LogOut, Grid, BarChart2, QrCode } from 'lucide-react';
+import { BookOpen, Settings, LogOut, Grid, BarChart2, QrCode, User as UserIcon } from 'lucide-react';
 import { User } from '../types';
 
 interface SidebarProps {
   user: User;
   onLogout: () => void;
+  onOpenProfile: () => void;
   logoSrc?: string;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, logoSrc }) => {
+const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onOpenProfile, logoSrc }) => {
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-white border-r border-warm/20 flex flex-col z-40 hidden md:flex">
       {/* Brand Section - Updated to match provided brand image exactly */}
@@ -78,18 +79,25 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, logoSrc }) => {
 
       {/* User Footer */}
       <div className="p-4 border-t border-warm/10 bg-gray-50/30">
-        <div className="flex items-center gap-3 px-4 py-3 mb-2">
-            <div className="w-9 h-9 rounded-full bg-dark text-white flex items-center justify-center text-sm font-bold shadow-md shadow-dark/10">
-                {user.email?.charAt(0).toUpperCase()}
+        <div 
+            onClick={onOpenProfile}
+            className="flex items-center gap-3 px-4 py-3 mb-2 cursor-pointer hover:bg-white rounded-lg transition-colors border border-transparent hover:border-gray-100 group"
+        >
+            <div className="w-9 h-9 rounded-full bg-dark text-white flex items-center justify-center text-sm font-bold shadow-md shadow-dark/10 overflow-hidden flex-shrink-0">
+                {user.photoURL ? (
+                    <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                    user.email?.charAt(0).toUpperCase()
+                )}
             </div>
-            <div className="overflow-hidden">
-                <p className="text-sm font-semibold text-dark truncate leading-none mb-1">{user.displayName || 'Publisher'}</p>
-                <p className="text-[10px] text-cool truncate opacity-70 uppercase tracking-tighter">{user.email}</p>
+            <div className="overflow-hidden flex-1 min-w-0">
+                <p className="text-sm font-semibold text-dark truncate leading-none mb-1 group-hover:text-warm transition-colors">{user.displayName || 'Publisher'}</p>
+                <p className="text-[10px] text-cool truncate opacity-70 uppercase tracking-tighter">My Account</p>
             </div>
         </div>
         <button 
             onClick={onLogout}
-            className="w-full flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wider text-cool hover:text-red-600 py-3 hover:bg-red-50 rounded-lg transition-all border border-transparent hover:border-red-100"
+            className="w-full flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wider text-cool hover:text-red-600 py-2 hover:bg-red-50 rounded-lg transition-all border border-transparent hover:border-red-100"
         >
             <LogOut size={14} />
             <span>Sign Out</span>

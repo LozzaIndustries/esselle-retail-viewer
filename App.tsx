@@ -3,6 +3,7 @@ import { HashRouter as Router, Route, Routes, Navigate, useParams, useNavigate }
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import UploadModal from './components/UploadModal';
+import AccountModal from './components/AccountModal';
 import FlipbookViewer from './components/FlipbookViewer';
 import QRModal from './components/QRModal';
 import Login from './components/Login';
@@ -142,12 +143,18 @@ const App: React.FC = () => {
   const [booklets, setBooklets] = useState<Booklet[]>([]);
   const [appSettings, setAppSettings] = useState<AppSettings>({});
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
   
   const [editingBooklet, setEditingBooklet] = useState<Booklet | null>(null);
 
   useEffect(() => {
     const unsub = subscribeToAuth((u) => {
-      setUser(u ? { uid: u.uid, email: u.email, displayName: u.displayName } : null);
+      setUser(u ? { 
+        uid: u.uid, 
+        email: u.email, 
+        displayName: u.displayName,
+        photoURL: u.photoURL 
+      } : null);
       setLoadingAuth(false);
     });
     return unsub;
@@ -196,6 +203,17 @@ const App: React.FC = () => {
     setEditingBooklet(null);
   };
 
+  const handleDeleteComplete = (deletedId: string) => {
+      setBooklets(prev => prev.filter(b => b.id !== deletedId));
+      setIsUploadOpen(false);
+      setEditingBooklet(null);
+  };
+
+  // Calculate publications by this user
+  const userPublicationCount = user 
+    ? booklets.filter(b => b.ownerId === user.uid).length 
+    : 0;
+
   if (loadingAuth) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-white font-serif text-2xl animate-pulse text-dark">
@@ -216,7 +234,13 @@ const App: React.FC = () => {
         
         <Route path="/" element={
           user ? (
-            <Layout user={user} onUploadClick={handleUploadClick} onLogout={handleLogout} logoSrc={appSettings.logoUrl}>
+            <Layout 
+                user={user} 
+                onUploadClick={handleUploadClick} 
+                onLogout={handleLogout} 
+                logoSrc={appSettings.logoUrl}
+                onOpenProfile={() => setIsAccountOpen(true)}
+            >
               <Dashboard 
                 booklets={booklets} 
                 onView={(id) => window.location.hash = `/view/${id}`} 
@@ -234,7 +258,13 @@ const App: React.FC = () => {
 
         <Route path="/analytics" element={
           user ? (
-            <Layout user={user} onUploadClick={handleUploadClick} onLogout={handleLogout} logoSrc={appSettings.logoUrl}>
+            <Layout 
+                user={user} 
+                onUploadClick={handleUploadClick} 
+                onLogout={handleLogout} 
+                logoSrc={appSettings.logoUrl}
+                onOpenProfile={() => setIsAccountOpen(true)}
+            >
               <Analytics booklets={booklets} />
             </Layout>
           ) : <Navigate to="/login" />
@@ -242,7 +272,13 @@ const App: React.FC = () => {
 
         <Route path="/qrcodes" element={
           user ? (
-            <Layout user={user} onUploadClick={handleUploadClick} onLogout={handleLogout} logoSrc={appSettings.logoUrl}>
+            <Layout 
+                user={user} 
+                onUploadClick={handleUploadClick} 
+                onLogout={handleLogout} 
+                logoSrc={appSettings.logoUrl}
+                onOpenProfile={() => setIsAccountOpen(true)}
+            >
               <QRCodes booklets={booklets} />
             </Layout>
           ) : <Navigate to="/login" />
@@ -250,7 +286,13 @@ const App: React.FC = () => {
 
         <Route path="/branding" element={
           user ? (
-            <Layout user={user} onUploadClick={handleUploadClick} onLogout={handleLogout} logoSrc={appSettings.logoUrl}>
+            <Layout 
+                user={user} 
+                onUploadClick={handleUploadClick} 
+                onLogout={handleLogout} 
+                logoSrc={appSettings.logoUrl}
+                onOpenProfile={() => setIsAccountOpen(true)}
+            >
               <BrandingSettings currentSettings={appSettings} onUpdate={setAppSettings} />
             </Layout>
           ) : <Navigate to="/login" />
@@ -264,8 +306,19 @@ const App: React.FC = () => {
             isOpen={isUploadOpen} 
             onClose={() => setIsUploadOpen(false)} 
             onUploadComplete={handleUploadComplete}
+            onDeleteComplete={handleDeleteComplete}
             initialBooklet={editingBooklet}
             currentUser={user}
+          />
+      )}
+
+      {user && (
+          <AccountModal 
+            isOpen={isAccountOpen}
+            onClose={() => setIsAccountOpen(false)}
+            user={user}
+            publicationCount={userPublicationCount}
+            onProfileUpdate={setUser}
           />
       )}
     </Router>

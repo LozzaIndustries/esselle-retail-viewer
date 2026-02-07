@@ -59,7 +59,10 @@ const PublicLibrary: React.FC<PublicLibraryProps> = ({ booklets, appSettings, on
             </div>
         ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-10 gap-y-16">
-            {booklets.map((item, index) => (
+            {booklets.map((item, index) => {
+                const displayDate = item.scheduledAt || item.createdAt || Date.now();
+
+                return (
                 <motion.div
                 key={item.id}
                 initial={{ opacity: 0, y: 30 }}
@@ -102,7 +105,7 @@ const PublicLibrary: React.FC<PublicLibraryProps> = ({ booklets, appSettings, on
                 <div className="space-y-2 px-1 pointer-events-none">
                     <div className="flex items-center gap-2 text-[10px] font-bold text-warm uppercase tracking-[0.2em]">
                     <Clock size={10} />
-                    {new Date(item.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
+                    {new Date(displayDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
                     </div>
                     <h3 className="font-serif text-xl text-dark leading-snug truncate">
                     {item.title}
@@ -112,7 +115,8 @@ const PublicLibrary: React.FC<PublicLibraryProps> = ({ booklets, appSettings, on
                     </p>
                 </div>
                 </motion.div>
-            ))}
+                );
+            })}
             </div>
         )}
       </div>
