@@ -2,12 +2,12 @@ import * as path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Handle process type definition for Node environment within Vite config
-declare const process: { cwd: () => string; env: Record<string, string | undefined> };
+// Declare process to avoid TypeScript errors in the Vite config (Node environment)
+declare const process: any;
 
 export default defineConfig(({ mode }) => {
-    const currentWorkingDir = process.cwd();
-    const env = loadEnv(mode, currentWorkingDir, '');
+    // Load env file based on `mode` in the current working directory.
+    const env = loadEnv(mode, process.cwd(), '');
     
     return {
       server: {
@@ -16,12 +16,13 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [react()],
       define: {
+        // Polyfill process.env.API_KEY for the Gemini SDK
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY || ''),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || '')
+        // Note: We do NOT overwrite 'process.env' entirely here to preserve NODE_ENV
       },
       resolve: {
         alias: {
-          '@': path.resolve(currentWorkingDir),
+          '@': path.resolve(process.cwd()),
         }
       }
     };

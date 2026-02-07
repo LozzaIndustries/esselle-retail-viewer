@@ -12,6 +12,15 @@ const QRCodes: React.FC<QRCodesProps> = ({ booklets }) => {
   const [fgColor, setFgColor] = useState('#332f21'); // Default Brand Dark
   const [isTransparent, setIsTransparent] = useState(false);
 
+  // Keep selection valid if booklets change
+  React.useEffect(() => {
+      if (selectedId && !booklets.find(b => b.id === selectedId) && booklets.length > 0) {
+          setSelectedId(booklets[0].id);
+      } else if (!selectedId && booklets.length > 0) {
+          setSelectedId(booklets[0].id);
+      }
+  }, [booklets, selectedId]);
+
   const selectedBooklet = booklets.find(b => b.id === selectedId);
   
   // Robust URL Construction
@@ -25,17 +34,14 @@ const QRCodes: React.FC<QRCodesProps> = ({ booklets }) => {
 
   const downloadQR = () => {
     try {
-        // We use the hidden high-res canvas for downloading
         const canvas = document.getElementById('high-res-qr') as HTMLCanvasElement;
         
         if (!canvas) {
             console.error("Canvas element not found");
-            alert("Error generating QR code. Please try refreshing the page.");
             return;
         }
 
         const pngUrl = canvas.toDataURL("image/png");
-        
         const downloadLink = document.createElement("a");
         downloadLink.href = pngUrl;
         const safeTitle = selectedBooklet?.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'publication';
@@ -45,7 +51,6 @@ const QRCodes: React.FC<QRCodesProps> = ({ booklets }) => {
         document.body.removeChild(downloadLink);
     } catch (error) {
         console.error("QR Download Error:", error);
-        alert("Could not download QR Code. This is usually caused by browser security settings preventing canvas export.");
     }
   };
 
@@ -103,7 +108,6 @@ const QRCodes: React.FC<QRCodesProps> = ({ booklets }) => {
                 <div className="bg-white p-8 rounded-2xl shadow-xl border border-warm/10 flex-1 w-full text-center sticky top-0">
                      <h2 className="font-serif text-xl text-dark mb-6">{selectedBooklet.title}</h2>
                      
-                     {/* The Visible Preview QR */}
                      <div className={`flex justify-center mb-8 p-6 border border-gray-100 rounded-xl shadow-inner transition-colors ${isTransparent ? 'bg-[url(https://bg.siteorigin.com/blog/wp-content/uploads/2015/06/patt01.png)]' : 'bg-white'}`}>
                         <QRCodeCanvas 
                             value={qrUrl}
@@ -112,7 +116,6 @@ const QRCodes: React.FC<QRCodesProps> = ({ booklets }) => {
                             includeMargin={!isTransparent}
                             fgColor={fgColor}
                             bgColor={isTransparent ? "transparent" : "#FFFFFF"}
-                            // We keep the icon for the PREVIEW only, as it's just rendering on screen
                             imageSettings={{
                                 src: "https://cdn-icons-png.flaticon.com/512/337/337946.png", 
                                 x: undefined,
@@ -149,7 +152,6 @@ const QRCodes: React.FC<QRCodesProps> = ({ booklets }) => {
                             <h3>Customization</h3>
                         </div>
 
-                        {/* Color Picker */}
                         <div className="mb-6">
                             <label className="text-xs font-semibold text-cool uppercase tracking-wide block mb-3">QR Color</label>
                             <div className="flex flex-wrap gap-3">
@@ -175,7 +177,6 @@ const QRCodes: React.FC<QRCodesProps> = ({ booklets }) => {
                             </div>
                         </div>
 
-                        {/* Background Toggle */}
                         <div className="mb-2">
                             <label className="text-xs font-semibold text-cool uppercase tracking-wide block mb-3">Background</label>
                             <div 
@@ -190,19 +191,11 @@ const QRCodes: React.FC<QRCodesProps> = ({ booklets }) => {
                                     <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${isTransparent ? 'left-6' : 'left-1'}`} />
                                 </div>
                             </div>
-                            <p className="text-[10px] text-cool mt-2 leading-relaxed">
-                                Enable transparency for placing QR codes on colored marketing materials or dark backgrounds.
-                            </p>
                         </div>
-                    </div>
-
-                    <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 text-sm text-blue-900">
-                        <p className="font-bold mb-2">Print Quality Ready</p>
-                        <p>The download button generates a 2000x2000px PNG file, suitable for high-quality printing on brochures, business cards, and posters.</p>
                     </div>
                 </div>
 
-                {/* HIDDEN HIGH RES CANVAS FOR DOWNLOAD */}
+                {/* HIDDEN HIGH RES CANVAS */}
                 <div style={{ position: 'fixed', top: '-10000px', left: '-10000px', visibility: 'hidden' }}>
                     <QRCodeCanvas 
                         id="high-res-qr"
@@ -212,7 +205,6 @@ const QRCodes: React.FC<QRCodesProps> = ({ booklets }) => {
                         includeMargin={!isTransparent}
                         fgColor={fgColor}
                         bgColor={isTransparent ? "transparent" : "#FFFFFF"}
-                        // REMOVED imageSettings to prevent CORS issues during download
                     />
                 </div>
             </div>

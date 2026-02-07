@@ -4,38 +4,31 @@ import { getFirestore, collection, addDoc, getDocs, doc, getDoc, setDoc, updateD
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, uploadString } from 'firebase/storage';
 import { Booklet, AppSettings } from '../types';
 
-// Safe environment variable access
-const getEnv = (key: string, fallback: string) => {
-  if (typeof process !== 'undefined' && process.env && process.env[key]) {
-    return process.env[key];
+// --- CONFIGURATION HELPER ---
+const getEnv = (key: string): string | undefined => {
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      return import.meta.env[key];
+    }
+  } catch (e) {
+    // Squelch errors in environments where import.meta is restricted
   }
-  return fallback;
-};
-
-// Check if we are in a development/preview environment
-const isPreviewEnv = () => {
-    if (typeof window === 'undefined') return false;
-    const h = window.location.hostname;
-    return h === 'localhost' || 
-           h === '127.0.0.1' || 
-           h.includes('webcontainer') || 
-           h.includes('stackblitz') || 
-           h.includes('bolt.new') ||
-           h.includes('preview');
+  return undefined;
 };
 
 // --- CONFIGURATION ---
-// REPLACE THESE with your actual Firebase project settings for live production
 const firebaseConfig = {
-  apiKey: getEnv('REACT_APP_FIREBASE_API_KEY', "demo-key"),
-  authDomain: "lumiere-folio.firebaseapp.com",
-  projectId: "lumiere-folio",
-  storageBucket: "lumiere-folio.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abcdef"
+  apiKey: getEnv('VITE_FIREBASE_API_KEY'),
+  authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN'),
+  projectId: getEnv('VITE_FIREBASE_PROJECT_ID'),
+  storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: getEnv('VITE_FIREBASE_APP_ID')
 };
 
-// --- MOCK DATA FOR DEVELOPMENT ---
+// --- MOCK DATA ---
 const STABLE_PDF = 'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi-09.pdf';
 const DEFAULT_COVER = 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=800';
 
@@ -50,28 +43,6 @@ const MOCK_BOOKLETS: Booklet[] = [
     ownerId: 'admin-user',
     status: 'published',
     stats: { views: 1240, uniqueReaders: 850, avgTimeSeconds: 185, shares: 45 }
-  },
-  {
-    id: 'demo-2',
-    title: 'Modern Minimalism: Architecture',
-    description: 'Exploring the intersection of structure and light in urban environments.',
-    url: STABLE_PDF,
-    coverUrl: 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?auto=format&fit=crop&q=80&w=800',
-    createdAt: Date.now() - 86400000 * 5,
-    ownerId: 'admin-user',
-    status: 'published',
-    stats: { views: 3205, uniqueReaders: 2900, avgTimeSeconds: 240, shares: 120 }
-  },
-  {
-    id: 'demo-3',
-    title: 'Typographic Heritage',
-    description: 'The history and evolution of serif typefaces in luxury publishing.',
-    url: STABLE_PDF,
-    coverUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800',
-    createdAt: Date.now() - 86400000 * 10,
-    ownerId: 'admin-user',
-    status: 'draft',
-    stats: { views: 89, uniqueReaders: 45, avgTimeSeconds: 60, shares: 2 }
   }
 ];
 
@@ -83,19 +54,25 @@ let storage: any = null;
 let isDemoMode = true; 
 
 try {
-  // Check if we have real credentials
-  if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "demo-key" && !firebaseConfig.apiKey.includes("process.env")) {
+  // Validate essential config
+  // We check if the key exists and is not an empty string placeholder
+  const hasKeys = firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.apiKey.length > 0;
+  
+  if (hasKeys) {
       app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
       auth = getAuth(app);
       db = getFirestore(app);
       storage = getStorage(app);
       isDemoMode = false;
-      console.log("Firebase initialized in Production Mode.");
+      console.log("🔥 Firebase initialized in PRODUCTION Mode.");
   } else {
-      console.log("Firebase initialized in Demo Fallback Mode.");
+      console.group("⚠️ Firebase Config Missing - Falling back to DEMO Mode");
+      console.warn("The application is running in local demo mode because Firebase credentials were not found.");
+      console.warn("To enable persistence, add VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID, etc. to your .env file.");
+      console.groupEnd();
   }
 } catch (e) {
-  console.warn("Firebase initialization error. Using local fallback.");
+  console.error("Firebase initialization critical error:", e);
 }
 
 export const isAppInDemoMode = () => isDemoMode;
@@ -105,14 +82,15 @@ export const isAppInDemoMode = () => isDemoMode;
 export const subscribeToAuth = (callback: (user: FirebaseUser | null) => void) => {
     if (isDemoMode || !auth) {
         const demoUser = localStorage.getItem('demo_authed');
-        setTimeout(() => {
+        // Simulate async behavior
+        const tm = setTimeout(() => {
             if (demoUser === 'true') {
                 callback({ uid: 'admin-user', email: 'admin@esselleretail.com', displayName: 'Admin Publisher' } as any);
             } else {
                 callback(null);
             }
         }, 50);
-        return () => {};
+        return () => clearTimeout(tm);
     }
     return onAuthStateChanged(auth, callback);
 };
@@ -121,29 +99,26 @@ export const loginWithEmail = async (emailInput: string, passwordInput: string) 
     const email = emailInput.trim().toLowerCase();
     const password = passwordInput.trim();
 
-    // Logic: If credentials are admin/admin OR we are in demo mode, treat as admin
+    // Admin backdoor for demo or fallback
     if (email === 'admin' && password === 'admin') {
         localStorage.setItem('demo_authed', 'true');
         return { uid: 'admin-user', email: 'admin@esselleretail.com', displayName: 'Admin Publisher' };
     }
 
     if (isDemoMode || !auth) {
-        throw new Error("Invalid credentials. Please use admin / admin.");
+        throw new Error("Invalid credentials. In Demo Mode, use admin / admin.");
     }
 
     return signInWithEmailAndPassword(auth, email, password);
 };
 
 export const registerWithEmail = async (emailInput: string, passwordInput: string) => {
-    const email = emailInput.trim().toLowerCase();
-    
     if (isDemoMode || !auth) {
-        // Mock registration in demo mode
+        const email = emailInput.trim().toLowerCase();
         localStorage.setItem('demo_authed', 'true');
         return { uid: `user_${Date.now()}`, email, displayName: email.split('@')[0] };
     }
-
-    const cred = await createUserWithEmailAndPassword(auth, email, passwordInput);
+    const cred = await createUserWithEmailAndPassword(auth, emailInput, passwordInput);
     return cred.user;
 };
 
@@ -161,60 +136,38 @@ const isAuthenticated = () => {
 // ----- DATA SERVICE -----
 
 export const fetchBooklets = async (ownerId?: string, publicOnly: boolean = false): Promise<Booklet[]> => {
+    // 1. Fallback / Local Storage
     const getLocalData = () => {
         try {
             const local = localStorage.getItem('lumiere_booklets');
             const saved = local ? JSON.parse(local) : [];
-            let merged = [...saved];
-            
-            // Only merge mocks if we are in a preview/development environment.
-            if (isPreviewEnv()) {
-                MOCK_BOOKLETS.forEach(mock => {
-                    if (!merged.find(m => m.id === mock.id)) {
-                        merged.push(mock);
-                    }
-                });
-            }
-            
-            let results = merged.sort((a, b) => b.createdAt - a.createdAt);
-
-            if (publicOnly) {
-                const now = Date.now();
-                results = results.filter(b => {
-                    if (b.status === 'draft') return false;
-                    if (b.status === 'scheduled' && b.scheduledAt && b.scheduledAt > now) return false;
-                    return true;
-                });
-            }
-
-            return results;
+            // Merge with mock if empty for demo purposes
+            if (saved.length === 0) return MOCK_BOOKLETS;
+            return saved.sort((a: Booklet, b: Booklet) => b.createdAt - a.createdAt);
         } catch (e) {
-            return isPreviewEnv() ? MOCK_BOOKLETS : [];
+            return MOCK_BOOKLETS;
         }
     };
 
-    // If we are explicitly in demo mode or have no DB, return demo content
     if (isDemoMode || !db) return getLocalData();
 
+    // 2. Production Firestore
     try {
         let q;
+        const bookletsRef = collection(db, "booklets");
 
         if (publicOnly) {
-            // For production public fetch, we just fetch published items
-            // Note: Scheduled items that have passed their date need a specific query or client-side filtering.
-            // For simplicity in this structure, we'll fetch 'published' and client-side filter scheduled.
-            q = query(collection(db, "booklets"), where("status", "in", ["published", "scheduled"]), orderBy("createdAt", "desc"));
+            q = query(bookletsRef, where("status", "in", ["published", "scheduled"]), orderBy("createdAt", "desc"));
         } else {
-            // Admin Dashboard fetches everything
             q = ownerId 
-                ? query(collection(db, "booklets"), where("ownerId", "==", ownerId), orderBy("createdAt", "desc"))
-                : query(collection(db, "booklets"), orderBy("createdAt", "desc"));
+                ? query(bookletsRef, where("ownerId", "==", ownerId), orderBy("createdAt", "desc"))
+                : query(bookletsRef, orderBy("createdAt", "desc"));
         }
             
         const snapshot = await getDocs(q);
         let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Booklet));
 
-        // Strict client-side filter for public views (handling scheduled times)
+        // Filter out future scheduled items on client side
         if (publicOnly) {
             const now = Date.now();
             data = data.filter(b => {
@@ -225,49 +178,41 @@ export const fetchBooklets = async (ownerId?: string, publicOnly: boolean = fals
 
         return data;
     } catch (e) {
-        console.error("Fetch error:", e);
-        return [];
+        console.error("Fetch error, falling back to local:", e);
+        return getLocalData();
     }
 };
 
 export const getBookletById = async (id: string): Promise<Booklet | null> => {
     let booklet: Booklet | null = null;
 
-    // 1. Force check Mock Data in Preview Environment
-    if (isPreviewEnv()) {
-        const mock = MOCK_BOOKLETS.find(b => b.id === id);
-        if (mock) booklet = mock;
-    }
-
-    // 2. Local Fallback / Demo Mode Check
-    if (!booklet && (isDemoMode || !db)) {
-        const all = await fetchBooklets();
-        booklet = all.find(b => b.id === id) || null;
-    }
-
-    // 3. Firestore Production Check
-    if (!booklet && !isDemoMode && db) {
+    // 1. Try Firestore
+    if (!isDemoMode && db) {
         try {
             const docSnap = await getDoc(doc(db, "booklets", id));
-            if (docSnap.exists()) booklet = { id: docSnap.id, ...docSnap.data() } as Booklet;
+            if (docSnap.exists()) {
+                booklet = { id: docSnap.id, ...docSnap.data() } as Booklet;
+            }
         } catch (e) {
             console.error("Get booklet error:", e);
         }
     }
 
+    // 2. Try Local/Mock if not found in DB or if in Demo mode
+    if (!booklet) {
+        const localData = localStorage.getItem('lumiere_booklets');
+        const allLocal = localData ? JSON.parse(localData) : MOCK_BOOKLETS;
+        booklet = allLocal.find((b: Booklet) => b.id === id) || null;
+    }
+
     if (!booklet) return null;
 
-    // --- SECURITY & VISIBILITY CHECK ---
-    // If user is logged in (admin), they can see everything.
+    // Visibility Check
     if (isAuthenticated()) return booklet;
 
-    // If public:
-    // 1. Must NOT be 'draft'
-    // 2. If 'scheduled', date must be in past
     if (booklet.status === 'draft') return null;
-    
     if (booklet.status === 'scheduled' && booklet.scheduledAt) {
-        if (Date.now() < booklet.scheduledAt) return null; // Not yet released
+        if (Date.now() < booklet.scheduledAt) return null;
     }
 
     return booklet;
@@ -305,16 +250,14 @@ export const uploadPDF = async (
     onProgress: (progress: number) => void,
     coverDataUrl?: string | null
   ): Promise<Booklet> => {
-    const fileId = `up_${Date.now()}`;
+    const fileId = `up_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     // DEMO MODE UPLOAD
     if (isDemoMode || !storage) {
         try {
             const pdfDataUrl = await mockUploadProcess(file, fileId, onProgress);
             let finalCoverUrl = DEFAULT_COVER;
-            if (coverDataUrl && coverDataUrl.length < 2000000) { 
-                finalCoverUrl = coverDataUrl;
-            }
+            if (coverDataUrl) finalCoverUrl = coverDataUrl;
 
             const newBooklet: Booklet = {
                 id: fileId,
@@ -333,7 +276,10 @@ export const uploadPDF = async (
                 const local = localStorage.getItem('lumiere_booklets');
                 const booklets = local ? JSON.parse(local) : [];
                 localStorage.setItem('lumiere_booklets', JSON.stringify([newBooklet, ...booklets]));
-            } catch (e) { console.warn("Storage full"); }
+            } catch (e) { 
+                console.error("Storage full or quota exceeded", e);
+                throw new Error("Local Demo Storage Full! PDF is too large for browser storage. Please connect to Firebase for unlimited storage.");
+            }
             
             return newBooklet;
         } catch (e) {
@@ -342,6 +288,7 @@ export const uploadPDF = async (
     }
 
     // PRODUCTION UPLOAD
+    // 1. Upload PDF
     const storageRef = ref(storage, `booklets/${fileId}`);
     const uploadTask = uploadBytesResumable(storageRef, file);
 
@@ -351,15 +298,20 @@ export const uploadPDF = async (
             (err) => reject(err),
             async () => {
                 const url = await getDownloadURL(uploadTask.snapshot.ref);
+                
+                // 2. Upload Cover if exists
                 let finalCoverUrl = DEFAULT_COVER;
                 if (coverDataUrl) {
                     try {
                         const coverRef = ref(storage, `covers/${fileId}.jpg`);
                         await uploadString(coverRef, coverDataUrl, 'data_url');
                         finalCoverUrl = await getDownloadURL(coverRef);
-                    } catch (e) {}
+                    } catch (e) {
+                        console.error("Cover upload failed", e);
+                    }
                 }
 
+                // 3. Save Metadata to Firestore
                 const docRef = await addDoc(collection(db, "booklets"), {
                     ...metadata,
                     url,
@@ -402,7 +354,6 @@ export const updateBooklet = async (
 
         const updated = { ...booklets[idx], ...metadata };
         
-        // If updating file
         if (file) {
             const pdfData = await mockUploadProcess(file, bookletId, onProgress);
             updated.url = pdfData;
@@ -412,8 +363,13 @@ export const updateBooklet = async (
 
         if (coverDataUrl) updated.coverUrl = coverDataUrl;
 
-        booklets[idx] = updated;
-        localStorage.setItem('lumiere_booklets', JSON.stringify(booklets));
+        try {
+            booklets[idx] = updated;
+            localStorage.setItem('lumiere_booklets', JSON.stringify(booklets));
+        } catch (e) {
+             console.error("Storage full or quota exceeded", e);
+             throw new Error("Local Demo Storage Full! PDF is too large for browser storage. Please connect to Firebase.");
+        }
         return updated;
     }
 
@@ -422,7 +378,6 @@ export const updateBooklet = async (
     const updates: any = { ...metadata };
 
     if (file) {
-        // We upload to a NEW path to avoid cache issues, but associate it with the SAME doc ID
         const fileRef = `booklets/${bookletId}_v${Date.now()}`;
         const storageRef = ref(storage, fileRef);
         const uploadTask = uploadBytesResumable(storageRef, file);
@@ -451,7 +406,7 @@ export const updateBooklet = async (
 
     await updateDoc(docRef, updates);
     
-    // Return updated object
+    // Return updated object by fetching fresh
     const finalDoc = await getDoc(docRef);
     return { id: finalDoc.id, ...finalDoc.data() } as Booklet;
 };
@@ -461,8 +416,8 @@ export const saveBrandingSettings = async (settings: AppSettings) => {
         try {
             localStorage.setItem('lumiere_settings', JSON.stringify(settings));
         } catch (e) {
-            console.error("Storage quota exceeded or error", e);
-            throw new Error("Logo image is too large for browser storage.");
+            console.error("Storage quota exceeded", e);
+            // We don't throw here to avoid blocking UI for simple settings, but we log it.
         }
         return;
     }
@@ -474,9 +429,7 @@ export const getBrandingSettings = async (): Promise<AppSettings> => {
         try {
             const s = localStorage.getItem('lumiere_settings');
             return s ? JSON.parse(s) : {};
-        } catch (e) {
-            return {};
-        }
+        } catch (e) { return {}; }
     }
     try {
         const snap = await getDoc(doc(db, 'config', 'global_settings'));
@@ -501,6 +454,8 @@ export const uploadLogo = async (file: File): Promise<string> => {
 
 export const recordView = async (id: string) => { 
     if (!isDemoMode && db) {
-        updateDoc(doc(db, 'booklets', id), { 'stats.views': increment(1) }).catch(() => {});
+        try {
+            await updateDoc(doc(db, 'booklets', id), { 'stats.views': increment(1) });
+        } catch(e) {}
     }
 };

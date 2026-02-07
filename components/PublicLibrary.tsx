@@ -18,13 +18,15 @@ const PublicLibrary: React.FC<PublicLibraryProps> = ({ booklets, appSettings, on
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
              {appSettings.logoUrl ? (
-                <img src={appSettings.logoUrl} alt="Logo" className="h-10 w-auto object-contain" />
+                <img src={appSettings.logoUrl} alt="Logo" className="h-12 w-auto object-contain" />
              ) : (
-                <BookOpen className="h-8 w-8 text-dark" strokeWidth={1} />
+                <>
+                    <BookOpen className="h-8 w-8 text-dark" strokeWidth={1} />
+                    <span className="font-serif text-xl font-bold text-dark hidden sm:block">
+                        {appSettings.companyName || "Esselle Retail"}
+                    </span>
+                </>
              )}
-             <span className="font-serif text-xl font-bold text-dark hidden sm:block">
-                {appSettings.companyName || "Esselle Retail"}
-             </span>
           </div>
           
           <Link to="/login" className="flex items-center gap-2 text-sm font-semibold text-cool hover:text-dark transition-colors px-4 py-2 rounded-full hover:bg-gray-50">

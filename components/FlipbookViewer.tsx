@@ -52,13 +52,16 @@ const PageContent = React.forwardRef<HTMLDivElement, any>((props, ref) => {
                 height: props.height,
                 padding: 0,
                 margin: 0,
-                backgroundColor: '#ffffff', // White background essential for peel effect visuals
+                backgroundColor: '#ffffff',
                 backfaceVisibility: 'hidden', 
                 WebkitBackfaceVisibility: 'hidden',
                 overflow: 'hidden',
-                position: 'relative'
+                position: 'relative',
+                boxShadow: 'inset 0 0 20px rgba(0,0,0,0.02)', 
+                cursor: 'pointer' // Add pointer to indicate clickability
             }}
-            className="shadow-sm"
+            className="shadow-sm group"
+            onClick={props.onPageClick} // Handle click directly
         >
                {/* Spinner BEHIND the PDF Page */}
                <div className="absolute inset-0 flex items-center justify-center z-0 bg-white">
@@ -66,9 +69,23 @@ const PageContent = React.forwardRef<HTMLDivElement, any>((props, ref) => {
                </div>
                
                {/* PDF Page Wrapper */}
-               <div className="relative z-10 w-full h-full block">
+               <div className="relative z-10 w-full h-full block pointer-events-none">
                    {props.children}
                </div>
+
+               {/* Visual Feedback on Hover (Subtle Shadow) */}
+               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-300 pointer-events-none z-30" />
+
+               {/* Spine Gradient Overlay */}
+               <div className="absolute top-0 bottom-0 w-8 pointer-events-none z-20" 
+                    style={{ 
+                        right: props.pageNumber % 2 === 0 ? undefined : 0, 
+                        left: props.pageNumber % 2 === 0 ? 0 : undefined,
+                        background: props.pageNumber % 2 === 0 
+                            ? 'linear-gradient(to right, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0) 100%)' 
+                            : 'linear-gradient(to left, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0) 100%)'
+                    }} 
+               />
         </div>
     );
 });
@@ -117,6 +134,29 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
     if (bookRef.current) bookRef.current.pageFlip().flipPrev();
   }, []);
 
+  // Custom click handler to ensure flipping works reliably
+  const handlePageClick = useCallback((index: number) => {
+      // If clicking even page (Left side), go back. 
+      // If clicking odd page (Right side), go next.
+      // Note: Index is 0-based. 
+      // Page 0 (Cover) is right side. Page 1 is left. Page 2 is right.
+      
+      if (index === 0) {
+          handleNext();
+          return;
+      }
+      
+      // Basic logic: odd indices are usually on the Left (Back), even on Right (Next)
+      // But page 0 is special (it's a cover on the right).
+      const isRightSide = index % 2 === 0;
+      
+      if (isRightSide) {
+          handleNext();
+      } else {
+          handlePrev();
+      }
+  }, [handleNext, handlePrev]);
+
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {
       containerRef.current?.requestFullscreen().catch(() => {});
@@ -127,19 +167,16 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
     }
   };
 
-  // 2. PRECISE DIMENSION CALCULATION
+  // 2. DIMENSIONS
   const dims = useMemo(() => {
     if (!windowSize || !pdfDimensions) return null;
     
     const ratio = pdfDimensions.width / pdfDimensions.height;
-    
-    // SAFETY MARGINS (Swing Space)
     const availableW = windowSize.width;
     const availableH = windowSize.height;
 
     const MAX_HEIGHT = availableH * 0.82; 
     
-    // Auto-detect mode based on PDF shape
     const isLandscapeDoc = ratio > 1.2;
     const isMobile = windowSize.width < 768;
 
@@ -147,21 +184,17 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
         ? (availableW * 0.90) 
         : (availableW * 0.42);
 
-    // 1. Calculate based on Height first
     let pageHeight = MAX_HEIGHT;
     let pageWidth = pageHeight * ratio;
 
-    // 2. If Width is too big, constrain by Width
     if (pageWidth > MAX_WIDTH_PER_PAGE) {
         pageWidth = MAX_WIDTH_PER_PAGE;
         pageHeight = pageWidth / ratio;
     }
 
-    // 3. Integer rounding (prevents blurry text)
     pageWidth = Math.floor(pageWidth);
     pageHeight = Math.floor(pageHeight);
 
-    // Ensure even numbers
     if (pageWidth % 2 !== 0) pageWidth -= 1;
     if (pageHeight % 2 !== 0) pageHeight -= 1;
 
@@ -174,10 +207,8 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
 
   const transformKey = dims ? `${dims.pageWidth}-${dims.pageHeight}-${dims.usePortrait}` : 'loading';
 
-  if (!windowSize) return null;
-
-  // Prepare props with 'any' cast to avoid strict type checking on missing library definitions (like startZIndex)
-  const flipBookProps: any = {
+  // 3. FLIPBOOK SETTINGS
+  const flipBookProps: any = useMemo(() => ({
     width: dims?.pageWidth || 300,
     height: dims?.pageHeight || 400,
     size: "fixed",
@@ -185,24 +216,28 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
     maxWidth: dims?.pageWidth || 300,
     minHeight: dims?.pageHeight || 400,
     maxHeight: dims?.pageHeight || 400,
-    maxShadowOpacity: 0.5,
+    maxShadowOpacity: 0.5, 
     showCover: true,
     mobileScrollSupport: false,
-    onFlip: (e: any) => setCurrentPage(e.data),
     className: "shadow-2xl",
     startPage: 0,
     drawShadow: true,
-    flippingTime: 800,
+    flippingTime: 1000, 
     usePortrait: dims?.usePortrait,
     startZIndex: 0,
     autoSize: false,
-    clickEventForward: true,
-    useMouseEvents: true,
-    swipeDistance: 10,
-    showPageCorners: true,
-    disableFlipByClick: true,
+    
+    // --- KEY FIXES FOR CLICK INTERACTION ---
+    clickEventForward: true,   // Allow clicks to pass through
+    useMouseEvents: false,     // DISABLE DRAG (Solves snap-back issue)
+    swipeDistance: 0,          // Disable swipe thresholds
+    showPageCorners: true,     // Keep the visual hint
+    disableFlipByClick: false, // Allow built-in click to flip
+    
     style: { margin: '0 auto' }
-  };
+  }), [dims]);
+
+  if (!windowSize) return null;
 
   return (
     <div className="fixed inset-0 z-[9999] bg-[#0d0d0d] flex flex-col h-screen w-screen overflow-hidden select-none" ref={containerRef}>
@@ -253,7 +288,6 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
                  </div>
              )}
 
-             {/* Hidden Loader */}
              <div className="hidden">
                  <Document 
                     file={booklet.url} 
@@ -273,30 +307,33 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
                     centerZoomedOut={true}
                     limitToBounds={false}
                     wheel={{ step: 0.1 }}
+                    panning={{ excluded: ['flipbook-interactive-area'] }}
                 >
                     {({ zoomIn, zoomOut, resetTransform }) => (
                         <>
-                            {/* Allow overflow so 3D pages don't clip */}
                             <TransformComponent 
                                 wrapperClass="!w-screen !h-full !overflow-visible" 
                                 contentClass="!w-full !h-full flex items-center justify-center !overflow-visible"
                             >
                                 {numPages > 0 && (
-                                    // IMPORTANT: We stop propagation here so Zoom/Pan doesn't steal the drag event from the book
+                                    // Wrapper with click handler exclusion
                                     <div 
+                                        className="flipbook-interactive-area"
                                         style={{ width: 'auto', height: 'auto', padding: '20px' }}
-                                        onMouseDown={(e) => e.stopPropagation()}
-                                        onTouchStart={(e) => e.stopPropagation()}
                                     >
                                         <HTMLFlipBook
                                             {...flipBookProps}
                                             ref={bookRef}
+                                            onFlip={(e: any) => setCurrentPage(e.data)}
                                         >
                                             {Array.from(new Array(numPages), (el, index) => (
                                                 <PageContent 
                                                     key={`page_${index}`} 
                                                     width={dims.pageWidth} 
                                                     height={dims.pageHeight}
+                                                    pageNumber={index}
+                                                    // Pass our manual click handler
+                                                    onPageClick={() => handlePageClick(index)}
                                                 >
                                                     <Document file={booklet.url} loading={null}>
                                                         <Page 

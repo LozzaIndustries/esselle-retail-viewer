@@ -60,11 +60,14 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, logoSrc, companyName }) =
       >
         <div className="flex flex-col items-center mb-10 text-center">
           {logoSrc ? (
-              <img src={logoSrc} alt={companyName || "Logo"} className="h-16 w-auto mb-4 object-contain" />
+              <img src={logoSrc} alt={companyName || "Logo"} className="h-20 w-auto mb-4 object-contain" />
           ) : (
-              <BookOpen className="h-10 w-10 text-dark mb-4" strokeWidth={1} />
+              <>
+                <BookOpen className="h-10 w-10 text-dark mb-4" strokeWidth={1} />
+                <h1 className="font-serif text-4xl text-dark tracking-tight">{companyName || "Esselle Retail"}</h1>
+              </>
           )}
-          <h1 className="font-serif text-4xl text-dark tracking-tight">{companyName || "Esselle Retail"}</h1>
+          
           <p className="text-[#8e8d8a] text-[9px] mt-4 tracking-[0.25em] uppercase font-semibold">Premium Publication Platform</p>
         </div>
 

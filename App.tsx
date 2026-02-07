@@ -10,9 +10,9 @@ import BrandingSettings from './components/BrandingSettings';
 import Analytics from './components/Analytics';
 import QRCodes from './components/QRCodes';
 import PublicLibrary from './components/PublicLibrary';
-import { fetchBooklets, getBookletById, subscribeToAuth, logout, getBrandingSettings } from './services/firebase';
+import { fetchBooklets, getBookletById, subscribeToAuth, logout, getBrandingSettings, isAppInDemoMode } from './services/firebase';
 import { Booklet, User, AppSettings } from './types';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Database } from 'lucide-react';
 
 // Robust URL Generator
 const getShareUrl = (id: string) => {
@@ -119,6 +119,17 @@ const ViewerRoute = ({ booklets, isPublic }: { booklets: Booklet[], isPublic: bo
   );
 };
 
+const DemoBanner = () => {
+    if (!isAppInDemoMode()) return null;
+    return (
+        <div className="bg-amber-100 border-b border-amber-200 text-amber-900 px-4 py-2 text-xs flex items-center justify-center gap-2 sticky top-0 z-[60]">
+            <Database size={14} />
+            <span className="font-bold">LOCAL DEMO MODE:</span>
+            <span>App is NOT connected to Firebase. Data is saved to this browser only. Shared links will NOT work on other devices.</span>
+        </div>
+    );
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
@@ -201,6 +212,7 @@ const App: React.FC = () => {
 
   return (
     <Router>
+      <DemoBanner />
       <Routes>
         {/* 1. PUBLIC VIEWER ROUTE - Accessible by ANYONE with link, NO LOGIN required */}
         <Route path="/view/:id" element={ 
