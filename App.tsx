@@ -14,53 +14,66 @@ import { fetchBooklets, getBookletById, subscribeToAuth, logout, getBrandingSett
 import { Booklet, User, AppSettings } from './types';
 import { AlertTriangle } from 'lucide-react';
 
+// Robust URL Generator
+const getShareUrl = (id: string) => {
+  const baseUrl = window.location.href.split('#')[0];
+  const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  return `${cleanBase}/#/view/${id}`;
+};
+
 // --- Helper Component for the Viewer Route ---
 const ViewerRoute = ({ booklets, isPublic }: { booklets: Booklet[], isPublic: boolean }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [booklet, setBooklet] = useState<Booklet | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<'loading' | 'found' | 'error'>('loading');
   const [isShareOpen, setIsShareOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
-    setLoading(true);
-
+    
     const loadBooklet = async () => {
-      // 1. Try to find it in the already loaded list (fastest)
+      if (!id) {
+        if (isMounted) setStatus('error');
+        return;
+      }
+
+      // 1. Optimistic Check: Try to find it in the props list first (Instant)
       const found = booklets.find(b => b.id === id);
       if (found) {
         if (isMounted) {
           setBooklet(found);
-          setLoading(false);
+          setStatus('found');
         }
         return;
       }
 
-      // 2. If not found, fetch specifically from Firebase/Service
-      if (id) {
-        try {
-          const fetched = await getBookletById(id);
-          if (isMounted) {
+      // 2. Network Fetch: If not in props, fetch directly
+      // Only set loading if we haven't already found it (prevents flickering)
+      if (isMounted && !booklet) setStatus('loading');
+
+      try {
+        const fetched = await getBookletById(id);
+        if (isMounted) {
+          if (fetched) {
             setBooklet(fetched);
-            // If we didn't find it, loading is done, but booklet remains null
-            setLoading(false);
+            setStatus('found');
+          } else {
+            setStatus('error');
           }
-        } catch (e) {
-          console.error("Failed to load booklet", e);
-          if (isMounted) setLoading(false);
         }
-      } else {
-        if (isMounted) setLoading(false);
+      } catch (e) {
+        console.error("Failed to load booklet", e);
+        if (isMounted) setStatus('error');
       }
     };
 
     loadBooklet();
 
     return () => { isMounted = false; };
-  }, [id, booklets]);
+  }, [id, booklets]); // Re-run if ID changes or Booklets list updates (e.g. initial load finishes)
 
-  if (loading) {
+  if (status === 'loading') {
     return (
       <div className="h-screen flex items-center justify-center bg-[#0d0d0d] text-white/30 text-sm font-serif tracking-widest uppercase animate-pulse">
         Loading Publication...
@@ -68,13 +81,13 @@ const ViewerRoute = ({ booklets, isPublic }: { booklets: Booklet[], isPublic: bo
     );
   }
 
-  if (!booklet) {
+  if (status === 'error' || !booklet) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-[#0d0d0d] text-white p-8 text-center">
         <AlertTriangle className="w-12 h-12 text-white/20 mb-4" />
         <h2 className="font-serif text-xl text-white mb-2">Publication Not Found</h2>
         <p className="text-white/40 text-sm max-w-md mb-8">
-          The booklet you are looking for has been removed or is currently unavailable.
+          The booklet you are looking for has been removed, is set to draft, or is currently unavailable.
         </p>
         <button 
           onClick={() => navigate('/')}
@@ -99,7 +112,7 @@ const ViewerRoute = ({ booklets, isPublic }: { booklets: Booklet[], isPublic: bo
       <QRModal
         isOpen={isShareOpen}
         onClose={() => setIsShareOpen(false)}
-        url={`${window.location.origin}/#/view/${booklet.id}`}
+        url={getShareUrl(booklet.id)}
         title={booklet.title}
       />
     </>

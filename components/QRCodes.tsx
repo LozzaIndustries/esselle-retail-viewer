@@ -13,7 +13,15 @@ const QRCodes: React.FC<QRCodesProps> = ({ booklets }) => {
   const [isTransparent, setIsTransparent] = useState(false);
 
   const selectedBooklet = booklets.find(b => b.id === selectedId);
-  const qrUrl = selectedBooklet ? `${window.location.origin}/#/view/${selectedBooklet.id}` : '';
+  
+  // Robust URL Construction
+  const getShareUrl = (id: string) => {
+    const baseUrl = window.location.href.split('#')[0];
+    const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+    return `${cleanBase}/#/view/${id}`;
+  };
+
+  const qrUrl = selectedBooklet ? getShareUrl(selectedBooklet.id) : '';
 
   const downloadQR = () => {
     try {
@@ -26,9 +34,6 @@ const QRCodes: React.FC<QRCodesProps> = ({ booklets }) => {
             return;
         }
 
-        // Convert to data URL
-        // Note: If an external image is drawn onto the canvas without CORS headers, 
-        // toDataURL() will throw a security error. We removed the image from the hidden canvas to ensure this works.
         const pngUrl = canvas.toDataURL("image/png");
         
         const downloadLink = document.createElement("a");

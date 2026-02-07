@@ -21,7 +21,7 @@ function useDebouncedResize(delay: number) {
   const [size, setSize] = useState<{ width: number, height: number } | null>(null);
 
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: any;
     const handleResize = () => {
       clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
@@ -52,7 +52,7 @@ const PageContent = React.forwardRef<HTMLDivElement, any>((props, ref) => {
                 height: props.height,
                 padding: 0,
                 margin: 0,
-                backgroundColor: '#ffffff', // Restored white background for visibility
+                backgroundColor: '#ffffff', // White background essential for peel effect visuals
                 backfaceVisibility: 'hidden', 
                 WebkitBackfaceVisibility: 'hidden',
                 overflow: 'hidden',
@@ -176,6 +176,34 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
 
   if (!windowSize) return null;
 
+  // Prepare props with 'any' cast to avoid strict type checking on missing library definitions (like startZIndex)
+  const flipBookProps: any = {
+    width: dims?.pageWidth || 300,
+    height: dims?.pageHeight || 400,
+    size: "fixed",
+    minWidth: dims?.pageWidth || 300,
+    maxWidth: dims?.pageWidth || 300,
+    minHeight: dims?.pageHeight || 400,
+    maxHeight: dims?.pageHeight || 400,
+    maxShadowOpacity: 0.5,
+    showCover: true,
+    mobileScrollSupport: false,
+    onFlip: (e: any) => setCurrentPage(e.data),
+    className: "shadow-2xl",
+    startPage: 0,
+    drawShadow: true,
+    flippingTime: 800,
+    usePortrait: dims?.usePortrait,
+    startZIndex: 0,
+    autoSize: false,
+    clickEventForward: true,
+    useMouseEvents: true,
+    swipeDistance: 10,
+    showPageCorners: true,
+    disableFlipByClick: true,
+    style: { margin: '0 auto' }
+  };
+
   return (
     <div className="fixed inset-0 z-[9999] bg-[#0d0d0d] flex flex-col h-screen w-screen overflow-hidden select-none" ref={containerRef}>
         
@@ -254,34 +282,15 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ booklet, onClose, onSha
                                 contentClass="!w-full !h-full flex items-center justify-center !overflow-visible"
                             >
                                 {numPages > 0 && (
-                                    // Padding here creates the "Safe Zone" for page turning
-                                    <div style={{ width: 'auto', height: 'auto', padding: '20px' }}>
+                                    // IMPORTANT: We stop propagation here so Zoom/Pan doesn't steal the drag event from the book
+                                    <div 
+                                        style={{ width: 'auto', height: 'auto', padding: '20px' }}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        onTouchStart={(e) => e.stopPropagation()}
+                                    >
                                         <HTMLFlipBook
-                                            width={dims.pageWidth}
-                                            height={dims.pageHeight}
-                                            size="fixed"
-                                            minWidth={dims.pageWidth}
-                                            maxWidth={dims.pageWidth}
-                                            minHeight={dims.pageHeight}
-                                            maxHeight={dims.pageHeight}
-                                            maxShadowOpacity={0.3} 
-                                            showCover={true}
-                                            mobileScrollSupport={true}
+                                            {...flipBookProps}
                                             ref={bookRef}
-                                            onFlip={(e) => setCurrentPage(e.data)}
-                                            className="shadow-2xl"
-                                            startPage={0}
-                                            drawShadow={true}
-                                            flippingTime={800}
-                                            usePortrait={dims.usePortrait}
-                                            startZIndex={0}
-                                            autoSize={false}
-                                            clickEventForward={true}
-                                            useMouseEvents={true}
-                                            swipeDistance={30}
-                                            showPageCorners={true}
-                                            disableFlipByClick={false}
-                                            style={{ margin: '0 auto' }}
                                         >
                                             {Array.from(new Array(numPages), (el, index) => (
                                                 <PageContent 
